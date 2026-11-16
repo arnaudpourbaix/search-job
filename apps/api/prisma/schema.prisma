@@ -1,0 +1,159 @@
+// Schéma de données de l'application de suivi de recherche d'emploi.
+// Doc : https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "sqlite"
+}
+
+/// Étapes du pipeline. Les trois dernières sont des états clôturés.
+enum Stage {
+  TO_CONTACT // À contacter
+  RECRUITER_TALK // Échange recruteur
+  APPLICATION_SENT // Dossier envoyé
+  CLIENT_INTERVIEW // Entretien client
+  OFFER // Proposition
+  WON // Gagné
+  REJECTED // Refusé
+  ABANDONED // Abandonné
+}
+
+enum NotificationType {
+  ACTION_OVERDUE // Action dont la date est dépassée
+  ACTION_DUE_TODAY // Action prévue aujourd'hui
+  ACTION_UPCOMING // Action dans les 7 prochains jours
+  STALE_OPPORTUNITY // Piste active sans contact depuis 14 jours
+}
+
+/// Société : ESN / cabinet intermédiaire, employeur direct ou client final.
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String   @unique
+  notes     String?
+  createdAt DateTime @default(now())
+
+  contacts             Contact[]
+  opportunities        Opportunity[] @relation("OpportunityCompany")
+  clientOpportunities  Opportunity[] @relation("OpportunityClient")
+}
+
+model Contact {
+  id        Int      @id @default(autoincrement())
+  name      String
+  email     String?
+  phone     String?
+  linkedin  String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  opportunities Opportunity[]
+}
+
+/// Une piste (ligne de l'onglet « Pistes »).
+model Opportunity {
+  id           Int      @id @default(autoincrement())
+  label        String   @unique // Nom court unique, ex. « Hunteo – Logosw »
+  title        String? // Poste
+  platform     String? // Valeur de RefList « PLATFORM »
+  contractType String? // Valeur de RefList « CONTRACT_TYPE »
+  location     String?
+  remoteDays   Int? // Jours de télétravail par semaine
+  duration     String? // ex. « 3 ans »
+  salaryMin    Int? // €/an (CDI)
+  salaryMax    Int? // €/an (CDI)
+  tjmMin       Int? // €/jour (freelance)
+  tjmMax       Int? // €/jour (freelance)
+  stage        Stage    @default(TO_CONTACT)
+  url          String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  companyId Int?
+  company   Company? @relation("OpportunityCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  clientId  Int?
+  client    Company? @relation("OpportunityClient", fields: [clientId], references: [id], onDelete: SetNull)
+  contactId Int?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  tags          Tag[]
+  interactions  Interaction[]
+  actions       Action[]
+  notifications Notification[]
+
+  @@index([stage])
+}
+
+/// Technologie de la stack (ex. Angular, NestJS).
+model Tag {
+  id            Int           @id @default(autoincrement())
+  name          String        @unique
+  opportunities Opportunity[]
+}
+
+/// Échange avec un recruteur ou un client (le « Journal »).
+/// Le 1er et le dernier contact d'une piste sont calculés à partir d'ici.
+model Interaction {
+  id      Int      @id @default(autoincrement())
+  date    DateTime
+  channel String? // Valeur de RefList « CHANNEL »
+  summary String
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([opportunityId, date])
+}
+
+/// Action à réaliser sur une piste (ex. « Rappeler »).
+model Action {
+  id      Int       @id @default(autoincrement())
+  label   String
+  dueDate DateTime?
+  doneAt  DateTime?
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+
+  @@index([dueDate, doneAt])
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  type      NotificationType
+  message   String
+  /// Clé d'unicité pour ne pas recréer la même alerte (ex. « ACTION_OVERDUE:12:2026-11-16 »).
+  dedupeKey String           @unique
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  actionId      Int?
+  action        Action?     @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([readAt])
+}
+
+/// Listes déroulantes modifiables (onglet « Listes ») : PLATFORM, CONTRACT_TYPE, CHANNEL.
+model RefList {
+  id       Int    @id @default(autoincrement())
+  category String
+  value    String
+  order    Int    @default(0)
+
+  @@unique([category, value])
+}
