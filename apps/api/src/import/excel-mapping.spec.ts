@@ -62,21 +62,64 @@ describe('parseStack', () => {
 });
 
 describe('mapRow', () => {
-  it('« Direct » : la société devient le client final', () => {
-    const o = mapRow(row({ company: 'Direct', client: 'Engie' }));
-    expect(o.companyName).toBe('Engie');
-    expect(o.clientName).toBeNull();
+  it('client renseigné : entreprise = client, intermédiaire = société', () => {
+    const o = mapRow(
+      row({ company: 'Tachyan', client: 'BPCE', contractType: 'Freelance' }),
+    );
+    expect(o.companyName).toBe('BPCE');
+    expect(o.intermediaryName).toBe('Tachyan');
+    expect(o.intermediaryType).toBe("Apporteur d'affaires");
   });
 
-  it('nettoie les espaces et ignore « ??? »', () => {
-    const o = mapRow(row({ company: 'COLEVER ', client: '???' }));
-    expect(o.companyName).toBe('COLEVER');
-    expect(o.clientName).toBeNull();
+  it('cabinet de recrutement en CDI', () => {
+    const o = mapRow(
+      row({ company: 'Hunteo', client: 'Logosw', contractType: 'CDI' }),
+    );
+    expect(o.companyName).toBe('Logosw');
+    expect(o.intermediaryName).toBe('Hunteo');
+    expect(o.intermediaryType).toBe('Cabinet de recrutement');
+  });
+
+  it('« Direct » : pas d’intermédiaire', () => {
+    const o = mapRow(row({ company: 'Direct', client: 'Engie' }));
+    expect(o.companyName).toBe('Engie');
+    expect(o.intermediaryName).toBeNull();
+    expect(o.intermediaryType).toBeNull();
+  });
+
+  it('sans client en CDI : la société est l’entreprise', () => {
+    const o = mapRow(row({ company: 'Cap Gémini', contractType: 'CDI' }));
+    expect(o.companyName).toBe('Cap Gémini');
+    expect(o.intermediaryName).toBeNull();
+  });
+
+  it('sans client en freelance (« ??? ») : entreprise inconnue', () => {
+    const o = mapRow(
+      row({ company: 'Edwyn', client: '???', contractType: 'Freelance' }),
+    );
+    expect(o.companyName).toBeNull();
+    expect(o.intermediaryName).toBe('Edwyn');
+  });
+
+  it('« Piste » redondante ignorée, vraie référence conservée', () => {
+    const redundant = mapRow(
+      row({
+        label: 'COLEVER  - La Poste',
+        company: 'COLEVER ',
+        client: 'La Poste',
+      }),
+    );
+    expect(redundant.reference).toBeNull();
+
+    const reference = mapRow(row({ label: 'BPCE_INFO01289', client: 'BPCE' }));
+    expect(reference.reference).toBe('BPCE_INFO01289');
   });
 
   it('réduit les espaces multiples mais garde les retours à la ligne', () => {
-    const o = mapRow(row({ label: 'COLEVER  - La Poste', notes: 'via Neurones \nnégocier' }));
-    expect(o.label).toBe('COLEVER - La Poste');
+    const o = mapRow(
+      row({ label: 'REF  42', notes: 'via Neurones \nnégocier' }),
+    );
+    expect(o.reference).toBe('REF 42');
     expect(o.notes).toBe('via Neurones\nnégocier');
   });
 

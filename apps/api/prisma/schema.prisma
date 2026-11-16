@@ -29,16 +29,17 @@ enum NotificationType {
   STALE_OPPORTUNITY // Piste active sans contact depuis 14 jours
 }
 
-/// Société : ESN / cabinet intermédiaire, employeur direct ou client final.
+/// Société : entreprise où l'on travaille, ou intermédiaire (apporteur d'affaires,
+/// société de portage, cabinet de recrutement). Une même société peut jouer les deux rôles.
 model Company {
   id        Int      @id @default(autoincrement())
   name      String   @unique
   notes     String?
   createdAt DateTime @default(now())
 
-  contacts             Contact[]
-  opportunities        Opportunity[] @relation("OpportunityCompany")
-  clientOpportunities  Opportunity[] @relation("OpportunityClient")
+  contacts                  Contact[]
+  opportunities             Opportunity[] @relation("OpportunityCompany")
+  intermediaryOpportunities Opportunity[] @relation("OpportunityIntermediary")
 }
 
 model Contact {
@@ -57,9 +58,10 @@ model Contact {
 }
 
 /// Une piste (ligne de l'onglet « Pistes »).
+/// Son nom affiché est calculé : entreprise, poste et intermédiaire.
 model Opportunity {
   id           Int      @id @default(autoincrement())
-  label        String   @unique // Nom court unique, ex. « Hunteo – Logosw »
+  reference    String? // Référence de l'annonce, ex. « BPCE_INFO01289 »
   title        String? // Poste
   platform     String? // Valeur de RefList « PLATFORM »
   contractType String? // Valeur de RefList « CONTRACT_TYPE »
@@ -76,12 +78,15 @@ model Opportunity {
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
-  companyId Int?
-  company   Company? @relation("OpportunityCompany", fields: [companyId], references: [id], onDelete: SetNull)
-  clientId  Int?
-  client    Company? @relation("OpportunityClient", fields: [clientId], references: [id], onDelete: SetNull)
-  contactId Int?
-  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+  /// Entreprise où l'on travaillerait (inconnue tant que l'intermédiaire ne l'a pas dite).
+  companyId        Int?
+  company          Company? @relation("OpportunityCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  /// Intermédiaire éventuel, quel que soit le contrat.
+  intermediaryId   Int?
+  intermediary     Company? @relation("OpportunityIntermediary", fields: [intermediaryId], references: [id], onDelete: SetNull)
+  intermediaryType String? // Valeur de RefList « INTERMEDIARY_TYPE »
+  contactId        Int?
+  contact          Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
 
   tags          Tag[]
   interactions  Interaction[]
@@ -89,6 +94,7 @@ model Opportunity {
   notifications Notification[]
 
   @@index([stage])
+  @@index([companyId])
 }
 
 /// Technologie de la stack (ex. Angular, NestJS).
@@ -148,7 +154,7 @@ model Notification {
   @@index([readAt])
 }
 
-/// Listes déroulantes modifiables (onglet « Listes ») : PLATFORM, CONTRACT_TYPE, CHANNEL.
+/// Listes déroulantes modifiables : PLATFORM, CONTRACT_TYPE, CHANNEL, INTERMEDIARY_TYPE.
 model RefList {
   id       Int    @id @default(autoincrement())
   category String

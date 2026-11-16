@@ -124,11 +124,13 @@ export type RawRow = {
 };
 
 export type MappedOpportunity = {
-  label: string;
-  /** Intermédiaire (ESN, cabinet) ou employeur direct. */
+  /** Référence d'annonce, si la colonne « Piste » n'est pas une simple concaténation des noms. */
+  reference: string | null;
+  /** Entreprise où l'on travaillerait (null si inconnue). */
   companyName: string | null;
-  /** Client final, si différent de la société. */
-  clientName: string | null;
+  /** Intermédiaire éventuel (ESN, apporteur d'affaires, cabinet de recrutement…). */
+  intermediaryName: string | null;
+  intermediaryType: string | null;
   contact: { name: string; email: string | null; phone: string | null } | null;
   platform: string | null;
   contractType: string | null;
@@ -150,6 +152,68 @@ export type MappedOpportunity = {
 
 const RANGE = /^\s*(\d{2,5})\s*[-–à]\s*(\d{2,5})\s*$/;
 
+export const INTERMEDIARY_TYPES = [
+  "Apporteur d'affaires",
+  'Société de portage',
+  'Cabinet de recrutement',
+];
+
+const FREELANCE_TYPES = ['freelance', 'portage'];
+
+/**
+ * Colonnes Excel « Société / ESN » + « Client final » → entreprise + intermédiaire.
+ *  - client renseigné : entreprise = client, intermédiaire = société (si différente)
+ *  - sans client, en freelance : la société est l'intermédiaire, l'entreprise est inconnue
+ *  - sans client, sinon : la société est l'entreprise
+ *  - « Direct » : pas d'intermédiaire
+ */
+export function splitParties(
+  societe: string | null,
+  client: string | null,
+  contractType: string | null,
+) {
+  if (societe && normalize(societe) === 'direct') societe = null;
+  const freelance =
+    contractType !== null && FREELANCE_TYPES.includes(normalize(contractType));
+
+  let companyName: string | null;
+  let intermediaryName: string | null;
+  if (client) {
+    companyName = client;
+    intermediaryName =
+      societe && normalize(societe) !== normalize(client) ? societe : null;
+  } else if (freelance) {
+    companyName = null;
+    intermediaryName = societe;
+  } else {
+    companyName = societe;
+    intermediaryName = null;
+  }
+
+  const intermediaryType = !intermediaryName
+    ? null
+    : contractType && normalize(contractType) === 'cdi'
+      ? 'Cabinet de recrutement'
+      : "Apporteur d'affaires";
+
+  return { companyName, intermediaryName, intermediaryType };
+}
+
+/** Nom compacté : minuscules, sans accents, espaces ni ponctuation. */
+const compact = (v: string) => normalize(v).replace(/[^a-z0-9]/g, '');
+
+/** Vrai si le libellé « Piste » ne fait que répéter les noms des sociétés. */
+export function isRedundantLabel(
+  label: string,
+  names: (string | null)[],
+): boolean {
+  const parts = names.filter((n): n is string => !!n).map(compact);
+  const candidates = new Set(parts);
+  for (const a of parts)
+    for (const b of parts) if (a !== b) candidates.add(a + b);
+  return candidates.has(compact(label));
+}
+
 export function mapRow(row: RawRow): MappedOpportunity {
   const label = cleanText(row.label);
   if (!label) throw new Error('Ligne sans nom de piste');
@@ -158,20 +222,12 @@ export function mapRow(row: RawRow): MappedOpportunity {
   const platform = cleanText(row.platform);
   const channel = channelFromPlatform(platform);
 
-  // « Direct » : pas d'intermédiaire, la société est le client final.
-  let companyName = cleanText(row.company);
-  let clientName = cleanText(row.client);
-  if (companyName && normalize(companyName) === 'direct') {
-    companyName = clientName;
-    clientName = null;
-  }
-  if (
-    clientName &&
-    companyName &&
-    normalize(clientName) === normalize(companyName)
-  ) {
-    clientName = null;
-  }
+  const contractType = cleanText(row.contractType);
+  const { companyName, intermediaryName, intermediaryType } = splitParties(
+    cleanText(row.company),
+    cleanText(row.client),
+    contractType,
+  );
 
   // TJM : valeur unique, ou fourchette « 500-600 » saisie dans les notes.
   const noteLines: string[] = [];
@@ -232,9 +288,15 @@ export function mapRow(row: RawRow): MappedOpportunity {
   const contactName = cleanText(row.contactName);
 
   return {
-    label,
+    reference: isRedundantLabel(label, [
+      cleanText(row.company),
+      cleanText(row.client),
+    ])
+      ? null
+      : label,
     companyName,
-    clientName,
+    intermediaryName,
+    intermediaryType,
     contact: contactName
       ? {
           name: contactName,
@@ -243,7 +305,7 @@ export function mapRow(row: RawRow): MappedOpportunity {
         }
       : null,
     platform,
-    contractType: cleanText(row.contractType),
+    contractType,
     title: cleanText(row.title),
     tags: parseStack(row.stack),
     location: cleanText(row.location),

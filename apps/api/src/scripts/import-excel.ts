@@ -13,7 +13,12 @@ import ExcelJS from 'exceljs';
 import { existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { PrismaClient } from '../generated/prisma/client.js';
-import { mapRow, normalize, type RawRow } from '../import/excel-mapping.js';
+import {
+  INTERMEDIARY_TYPES,
+  mapRow,
+  normalize,
+  type RawRow,
+} from '../import/excel-mapping.js';
 import { API_ROOT, resolveSqliteUrl } from '../paths.js';
 
 /** En-tête Excel (normalisé) → champ de RawRow. */
@@ -163,7 +168,13 @@ async function main() {
         await tx.refList.deleteMany();
       }
 
-      for (const entry of lists) {
+      // Types d'intermédiaire : absents de l'Excel, valeurs par défaut.
+      const intermediaryTypes = INTERMEDIARY_TYPES.map((value, order) => ({
+        category: 'INTERMEDIARY_TYPE',
+        value,
+        order,
+      }));
+      for (const entry of [...lists, ...intermediaryTypes]) {
         await tx.refList.upsert({
           where: {
             category_value: { category: entry.category, value: entry.value },
@@ -185,25 +196,27 @@ async function main() {
 
       for (const o of opportunities) {
         const companyIdValue = await companyId(o.companyName);
-        const clientIdValue = await companyId(o.clientName);
+        const intermediaryIdValue = await companyId(o.intermediaryName);
 
+        // Le contact appartient à l'intermédiaire s'il y en a un.
+        const contactOwner = intermediaryIdValue ?? companyIdValue;
         let contactId: number | null = null;
         if (o.contact) {
           const found = await tx.contact.findFirst({
-            where: { name: o.contact.name, companyId: companyIdValue },
+            where: { name: o.contact.name, companyId: contactOwner },
           });
           contactId =
             found?.id ??
             (
               await tx.contact.create({
-                data: { ...o.contact, companyId: companyIdValue },
+                data: { ...o.contact, companyId: contactOwner },
               })
             ).id;
         }
 
         await tx.opportunity.create({
           data: {
-            label: o.label,
+            reference: o.reference,
             title: o.title,
             platform: o.platform,
             contractType: o.contractType,
@@ -218,7 +231,8 @@ async function main() {
             url: o.url,
             notes: o.notes,
             companyId: companyIdValue,
-            clientId: clientIdValue,
+            intermediaryId: intermediaryIdValue,
+            intermediaryType: o.intermediaryType,
             contactId,
             tags: {
               connectOrCreate: o.tags.map((name) => ({
