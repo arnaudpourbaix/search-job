@@ -21,6 +21,19 @@ npm run dev:web                    # Front React sur http://localhost:5173
 
 Outils : `npm run db:studio -w api` ouvre Prisma Studio pour explorer la base.
 
+### Import de l'ancien fichier Excel
+
+```bash
+npm run import:excel -w api                       # lit recherches.xlsx à la racine
+npm run import:excel -w api -- autre.xlsx --reset # autre fichier, en vidant la base avant
+```
+
+- L'import refuse de tourner si la base contient déjà des pistes, sauf avec `--reset`.
+- Les onglets lus sont « Pistes » et « Listes » ; « Synthèse » est ignoré car tout y est calculé.
+- Les dates « 1er contact » et « Dernier contact » deviennent des échanges dans le journal.
+- La « Prochaine action » devient une action (marquée faite si la piste est clôturée).
+- Une fourchette de TJM saisie dans les notes (« 500-600 ») est convertie en TJM min / max.
+
 ## Structure
 
 ```
