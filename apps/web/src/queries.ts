@@ -1,11 +1,13 @@
 import { notifications } from '@mantine/notifications'
 import {
+  MutationCache,
   QueryClient,
   useMutation,
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
 import { api } from './api.ts'
+import { NOTIFICATION_KEY } from './notifications.ts'
 import type {
   Day,
   OpportunityDetail,
@@ -16,7 +18,11 @@ import type {
   Stage,
 } from './types.ts'
 
-export const queryClient = new QueryClient({
+export const queryClient: QueryClient = new QueryClient({
+  // Toute modification peut changer les alertes (action faite, échange ajouté…).
+  mutationCache: new MutationCache({
+    onSettled: () => queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEY }),
+  }),
   defaultOptions: {
     queries: { staleTime: 30_000, retry: 1 },
     mutations: {

@@ -1,13 +1,13 @@
-import { ActionIcon, AppShell, Burger, Group, NavLink, Title, Tooltip } from '@mantine/core'
+import { AppShell, Burger, Group, NavLink, Title } from '@mantine/core'
 import { useDisclosure } from '@mantine/hooks'
 import {
-  IconBell,
   IconBriefcase,
   IconLayoutDashboard,
   IconLayoutKanban,
   IconSettings,
 } from '@tabler/icons-react'
 import { NavLink as RouterNavLink, Outlet } from 'react-router'
+import { NotificationBell } from '../components/NotificationBell.tsx'
 
 const links = [
   { to: '/', label: 'Tableau de bord', icon: IconLayoutDashboard },
@@ -31,11 +31,7 @@ export function AppLayout() {
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" aria-label="Menu" />
             <Title order={4}>Search Job</Title>
           </Group>
-          <Tooltip label="Notifications">
-            <ActionIcon variant="subtle" size="lg" aria-label="Notifications">
-              <IconBell size={20} />
-            </ActionIcon>
-          </Tooltip>
+          <NotificationBell />
         </Group>
       </AppShell.Header>
 
