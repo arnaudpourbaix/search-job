@@ -3,6 +3,7 @@ import {
   Alert,
   Anchor,
   Badge,
+  Box,
   Button,
   Card,
   Center,
@@ -27,6 +28,7 @@ import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import {
   IconArrowLeft,
+  IconCheck,
   IconDots,
   IconExternalLink,
   IconMail,
@@ -36,7 +38,7 @@ import {
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { DueBadge, DuplicateCompanyIcon, StaleIcon } from '../components/badges.tsx'
 import { OpportunityModal } from '../components/OpportunityModal.tsx'
@@ -56,7 +58,7 @@ import {
   useRefLists,
   useUpdateOpportunity,
 } from '../queries.ts'
-import { STAGES, type OpportunityDetail, type Stage } from '../types.ts'
+import { STAGES, type Interaction, type OpportunityDetail, type Stage } from '../types.ts'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -243,11 +245,28 @@ function ActionsCard({ o }: { o: OpportunityDetail }) {
   )
 }
 
-function JournalCard({ o }: { o: OpportunityDetail }) {
-  const { addInteraction, removeInteraction } = useJournal(o.id)
+type InteractionValues = { date: string | null; channel: string | null; summary: string }
+
+/** Formulaire d'échange, pour l'ajout comme pour la modification. */
+function InteractionForm({
+  initial,
+  submitLabel,
+  loading,
+  resetOnSuccess,
+  onSubmit,
+  onCancel,
+}: {
+  initial: InteractionValues
+  submitLabel: string
+  loading: boolean
+  /** Vide le résumé après un ajout réussi. */
+  resetOnSuccess?: boolean
+  onSubmit: (v: Interaction, done: () => void) => void
+  onCancel?: () => void
+}) {
   const { data: lists } = useRefLists()
-  const form = useForm<{ date: string | null; channel: string | null; summary: string }>({
-    initialValues: { date: today(), channel: null, summary: '' },
+  const form = useForm<InteractionValues>({
+    initialValues: initial,
     validate: {
       date: (v) => (v ? null : 'Date obligatoire'),
       summary: (v) => (v.trim() ? null : 'Résumé obligatoire'),
@@ -255,42 +274,93 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
   })
 
   return (
+    <form
+      onSubmit={form.onSubmit((v) =>
+        onSubmit(
+          { id: 0, date: v.date!, channel: v.channel, summary: v.summary.trim() },
+          () => resetOnSuccess && form.setFieldValue('summary', ''),
+        ),
+      )}
+    >
+      <Stack gap="xs">
+        <Group gap="xs" grow>
+          <DateInput
+            valueFormat="DD/MM/YYYY"
+            locale="fr"
+            maxDate={today()}
+            aria-label="Date de l'échange"
+            {...form.getInputProps('date')}
+          />
+          <Select
+            placeholder="Canal"
+            aria-label="Canal"
+            data={lists?.CHANNEL ?? []}
+            clearable
+            {...form.getInputProps('channel')}
+          />
+        </Group>
+        <Textarea
+          placeholder="Résumé de l'échange"
+          aria-label="Résumé de l'échange"
+          autosize
+          minRows={2}
+          data-autofocus={onCancel ? true : undefined}
+          {...form.getInputProps('summary')}
+        />
+        <Group justify="flex-end" gap="xs">
+          {onCancel && (
+            <Button size="xs" variant="default" onClick={onCancel}>
+              Annuler
+            </Button>
+          )}
+          <Button
+            type="submit"
+            size="xs"
+            leftSection={onCancel ? <IconCheck size={14} /> : <IconPlus size={14} />}
+            loading={loading}
+          >
+            {submitLabel}
+          </Button>
+        </Group>
+      </Stack>
+    </form>
+  )
+}
+
+function JournalCard({ o }: { o: OpportunityDetail }) {
+  const { addInteraction, updateInteraction, removeInteraction } = useJournal(o.id)
+  const [editingId, setEditingId] = useState<number | null>(null)
+
+  const confirmRemove = (i: Interaction) =>
+    modals.openConfirmModal({
+      title: "Supprimer l'échange ?",
+      children: (
+        <Text size="sm">
+          L'échange du {formatDay(i.date)} sera supprimé définitivement.
+        </Text>
+      ),
+      labels: { confirm: 'Supprimer', cancel: 'Annuler' },
+      confirmProps: { color: 'red' },
+      onConfirm: () => removeInteraction.mutate(i.id),
+    })
+
+  return (
     <Card withBorder>
       <Title order={4} mb="sm">
         Journal
       </Title>
 
-      <form
-        onSubmit={form.onSubmit((v) =>
-          addInteraction.mutate(
-            { date: v.date!, channel: v.channel, summary: v.summary.trim() },
-            { onSuccess: () => form.setFieldValue('summary', '') },
-          ),
-        )}
-      >
-        <Stack gap="xs" mb="lg">
-          <Group gap="xs" grow>
-            <DateInput valueFormat="DD/MM/YYYY" locale="fr" maxDate={today()} {...form.getInputProps('date')} />
-            <Select
-              placeholder="Canal"
-              data={lists?.CHANNEL ?? []}
-              clearable
-              {...form.getInputProps('channel')}
-            />
-          </Group>
-          <Textarea
-            placeholder="Résumé de l'échange"
-            autosize
-            minRows={2}
-            {...form.getInputProps('summary')}
-          />
-          <Group justify="flex-end">
-            <Button type="submit" size="xs" leftSection={<IconPlus size={14} />} loading={addInteraction.isPending}>
-              Ajouter l'échange
-            </Button>
-          </Group>
-        </Stack>
-      </form>
+      <Box mb="lg">
+        <InteractionForm
+          initial={{ date: today(), channel: null, summary: '' }}
+          submitLabel="Ajouter l'échange"
+          loading={addInteraction.isPending}
+          resetOnSuccess
+          onSubmit={({ date, channel, summary }, done) =>
+            addInteraction.mutate({ date, channel, summary }, { onSuccess: done })
+          }
+        />
+      </Box>
 
       {o.interactions.length === 0 ? (
         <Text size="sm" c="dimmed">
@@ -303,31 +373,64 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
               key={i.id}
               bullet={<IconMessage size={12} />}
               title={
-                <Group justify="space-between" wrap="nowrap">
-                  <Text size="sm" fw={500}>
-                    {formatDay(i.date)}
-                    {i.channel && (
-                      <Text span c="dimmed" size="sm">
-                        {' · '}
-                        {i.channel}
-                      </Text>
-                    )}
-                  </Text>
-                  <ActionIcon
-                    variant="subtle"
-                    color="gray"
-                    size="sm"
-                    aria-label="Supprimer l'échange"
-                    onClick={() => removeInteraction.mutate(i.id)}
-                  >
-                    <IconTrash size={14} />
-                  </ActionIcon>
-                </Group>
+                editingId === i.id ? undefined : (
+                  <Group justify="space-between" wrap="nowrap">
+                    <Text size="sm" fw={500}>
+                      {formatDay(i.date)}
+                      {i.channel && (
+                        <Text span c="dimmed" size="sm">
+                          {' · '}
+                          {i.channel}
+                        </Text>
+                      )}
+                    </Text>
+                    <Group gap={2} wrap="nowrap">
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        size="sm"
+                        aria-label="Modifier l'échange"
+                        onClick={() => setEditingId(i.id)}
+                      >
+                        <IconPencil size={14} />
+                      </ActionIcon>
+                      <ActionIcon
+                        variant="subtle"
+                        color="gray"
+                        size="sm"
+                        aria-label="Supprimer l'échange"
+                        onClick={() => confirmRemove(i)}
+                      >
+                        <IconTrash size={14} />
+                      </ActionIcon>
+                    </Group>
+                  </Group>
+                )
               }
             >
-              <Text size="sm" style={{ whiteSpace: 'pre-wrap' }}>
-                {i.summary}
-              </Text>
+              {editingId === i.id ? (
+                <InteractionForm
+                  initial={{ date: i.date, channel: i.channel, summary: i.summary }}
+                  submitLabel="Enregistrer"
+                  loading={updateInteraction.isPending}
+                  onCancel={() => setEditingId(null)}
+                  onSubmit={({ date, channel, summary }) =>
+                    updateInteraction.mutate(
+                      { id: i.id, date, channel, summary },
+                      { onSuccess: () => setEditingId(null) },
+                    )
+                  }
+                />
+              ) : (
+                <Text
+                  size="sm"
+                  style={{ whiteSpace: 'pre-wrap', cursor: 'text' }}
+                  title="Double-clic pour modifier"
+                  onDoubleClick={() => setEditingId(i.id)}
+                >
+                  {i.summary}
+                </Text>
+              )}
             </Timeline.Item>
           ))}
         </Timeline>

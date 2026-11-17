@@ -114,6 +114,18 @@ export function useJournal(opportunityId: number) {
         api.post<OpportunityDetail>(`/opportunities/${opportunityId}/interactions`, body),
       onSuccess: refresh,
     }),
+    updateInteraction: useMutation({
+      mutationFn: ({
+        id,
+        ...body
+      }: {
+        id: number
+        date: Day
+        channel: string | null
+        summary: string
+      }) => api.patch<void>(`/interactions/${id}`, body),
+      onSuccess: reload,
+    }),
     removeInteraction: useMutation({
       mutationFn: (id: number) => api.delete(`/interactions/${id}`),
       onSuccess: reload,

@@ -1,4 +1,4 @@
-import { PartialType } from '@nestjs/mapped-types';
+import { OmitType, PartialType } from '@nestjs/mapped-types';
 import { Transform, Type } from 'class-transformer';
 import {
   ArrayMaxSize,
@@ -14,6 +14,7 @@ import {
   Max,
   MaxLength,
   Min,
+  ValidateIf,
   ValidateNested,
 } from 'class-validator';
 import { Stage } from '../generated/prisma/enums.js';
@@ -28,6 +29,13 @@ const Trim = () =>
     const text = value.trim();
     return text === '' ? null : text;
   });
+
+/**
+ * Champ facultatif en mise à jour, mais pas effaçable : absent = inchangé,
+ * null ou vide = refusé (400). Contrairement à @IsOptional, null est validé.
+ */
+const Present = <T extends object>(field: keyof T & string) =>
+  ValidateIf((o: T) => o[field] !== undefined);
 
 export class ContactInput {
   @Trim()
@@ -163,7 +171,14 @@ export class CreateOpportunityDto {
   tags?: string[];
 }
 
-export class UpdateOpportunityDto extends PartialType(CreateOpportunityDto) {}
+export class UpdateOpportunityDto extends PartialType(
+  OmitType(CreateOpportunityDto, ['stage'] as const),
+) {
+  /** L'étape peut changer, mais pas être effacée. */
+  @Present<UpdateOpportunityDto>('stage')
+  @IsEnum(Stage)
+  stage?: Stage;
+}
 
 export class ListOpportunitiesQuery {
   /** Recherche libre (référence, poste, entreprise, intermédiaire, contact, techno). */
@@ -206,7 +221,23 @@ export class CreateInteractionDto {
   summary: string;
 }
 
-export class UpdateInteractionDto extends PartialType(CreateInteractionDto) {}
+export class UpdateInteractionDto {
+  @Present<UpdateInteractionDto>('date')
+  @Matches(DAY, { message: `date ${DAY_MESSAGE}` })
+  date?: string;
+
+  @Trim()
+  @IsOptional()
+  @IsString()
+  @MaxLength(100)
+  channel?: string | null;
+
+  @Trim()
+  @Present<UpdateInteractionDto>('summary')
+  @IsString({ message: 'Le résumé ne peut pas être vide' })
+  @MaxLength(10000)
+  summary?: string;
+}
 
 export class CreateActionDto {
   @Trim()
@@ -220,8 +251,18 @@ export class CreateActionDto {
   dueDate?: string | null;
 }
 
-export class UpdateActionDto extends PartialType(CreateActionDto) {
+export class UpdateActionDto {
+  @Trim()
+  @Present<UpdateActionDto>('label')
+  @IsString({ message: "Le libellé de l'action ne peut pas être vide" })
+  @MaxLength(500)
+  label?: string;
+
   @IsOptional()
+  @Matches(DAY, { message: `dueDate ${DAY_MESSAGE}` })
+  dueDate?: string | null;
+
+  @Present<UpdateActionDto>('done')
   @IsBoolean()
   done?: boolean;
 }

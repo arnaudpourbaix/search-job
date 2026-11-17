@@ -19,7 +19,12 @@ type Opportunity = {
   lastContactAt: string | null;
   nextAction: { id: number; label: string; dueDate: string | null } | null;
   duplicateCompany: boolean;
-  interactions: { id: number; date: string; summary: string }[];
+  interactions: {
+    id: number;
+    date: string;
+    channel: string | null;
+    summary: string;
+  }[];
   actions: {
     id: number;
     label: string;
@@ -85,6 +90,31 @@ describe('Opportunities (e2e)', () => {
       .expect(400);
   });
 
+  it('refuse d’effacer un champ obligatoire en mise à jour (400, pas 500)', async () => {
+    await http()
+      .patch('/opportunities/' + id)
+      .send({ stage: null })
+      .expect(400);
+    const created = (
+      await http()
+        .post('/opportunities/' + id + '/actions')
+        .send({ label: 'Temporaire' })
+        .expect(201)
+    ).body as Opportunity;
+    const actionId = created.actions.find((a) => a.label === 'Temporaire')?.id;
+    await http()
+      .patch('/actions/' + actionId)
+      .send({ label: '  ' })
+      .expect(400);
+    await http()
+      .patch('/actions/' + actionId)
+      .send({ done: null })
+      .expect(400);
+    await http()
+      .delete('/actions/' + actionId)
+      .expect(204);
+  });
+
   it('valide les entrées (400)', async () => {
     await http()
       .post('/opportunities')
@@ -112,6 +142,45 @@ describe('Opportunities (e2e)', () => {
       'Appel',
       'Premier mail',
     ]);
+  });
+
+  it('modifie un échange du journal (résumé enrichi, date, canal)', async () => {
+    const before = (
+      await http()
+        .get('/opportunities/' + id)
+        .expect(200)
+    ).body as Opportunity;
+    const appel = before.interactions.find((i) => i.summary === 'Appel');
+    expect(appel).toBeDefined();
+
+    await http()
+      .patch('/interactions/' + appel?.id)
+      .send({
+        date: '2026-11-15',
+        channel: 'Téléphone',
+        summary: 'Appel : entretien client prévu le 20/11',
+      })
+      .expect(204);
+    await http()
+      .patch('/interactions/' + appel?.id)
+      .send({ summary: '' })
+      .expect(400);
+    await http()
+      .patch('/interactions/999999')
+      .send({ summary: 'x' })
+      .expect(404);
+
+    const after = (
+      await http()
+        .get('/opportunities/' + id)
+        .expect(200)
+    ).body as Opportunity;
+    const edited = after.interactions.find((i) => i.id === appel?.id);
+    expect(edited?.summary).toBe('Appel : entretien client prévu le 20/11');
+    expect(edited?.date).toBe('2026-11-15');
+    expect(edited?.channel).toBe('Téléphone');
+    // Le dernier contact suit la nouvelle date.
+    expect(after.lastContactAt).toBe('2026-11-15');
   });
 
   it('prochaine action = échéance la plus proche, sans date en dernier', async () => {
