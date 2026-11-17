@@ -7,6 +7,7 @@ import { OpportunitiesModule } from './opportunities/opportunities.module.js';
 import { API_ROOT } from './paths.js';
 import { PrismaModule } from './prisma/prisma.module.js';
 import { ReferenceModule } from './reference/reference.module.js';
+import { SettingsModule } from './settings/settings.module.js';
 
 @Module({
   imports: [
@@ -17,6 +18,7 @@ import { ReferenceModule } from './reference/reference.module.js';
     PrismaModule,
     OpportunitiesModule,
     ReferenceModule,
+    SettingsModule,
   ],
   controllers: [AppController],
   providers: [AppService],
