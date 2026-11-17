@@ -82,15 +82,16 @@ export class OpportunitiesService {
     if (query.active) stageFilters.push({ stage: { notIn: CLOSED_STAGES } });
     if (stageFilters.length) where.AND = stageFilters;
     if (query.q) {
-      const contains = query.q;
+      // Recherche insensible à la casse (Postgres est sensible par défaut).
+      const contains = { contains: query.q, mode: 'insensitive' as const };
       where.OR = [
-        { reference: { contains } },
-        { title: { contains } },
-        { location: { contains } },
-        { company: { name: { contains } } },
-        { intermediary: { name: { contains } } },
-        { contact: { name: { contains } } },
-        { tags: { some: { name: { contains } } } },
+        { reference: contains },
+        { title: contains },
+        { location: contains },
+        { company: { name: contains } },
+        { intermediary: { name: contains } },
+        { contact: { name: contains } },
+        { tags: { some: { name: contains } } },
       ];
     }
 

@@ -7,7 +7,6 @@
  * Refuse de s'exécuter si la base contient déjà des pistes, sauf avec --reset
  * (qui vide toutes les tables avant l'import).
  */
-import { PrismaBetterSqlite3 } from '@prisma/adapter-better-sqlite3';
 import { config as loadEnv } from 'dotenv';
 import ExcelJS from 'exceljs';
 import { existsSync } from 'node:fs';
@@ -19,7 +18,8 @@ import {
   normalize,
   type RawRow,
 } from '../import/excel-mapping.js';
-import { API_ROOT, resolveSqliteUrl } from '../paths.js';
+import { API_ROOT } from '../paths.js';
+import { createPrismaAdapter } from '../prisma/adapter.js';
 
 /** En-tête Excel (normalisé) → champ de RawRow. */
 const COLUMNS: Record<string, keyof RawRow> = {
@@ -142,11 +142,7 @@ async function main() {
   );
   const opportunities = readOpportunities(sheet).map(mapRow);
 
-  const prisma = new PrismaClient({
-    adapter: new PrismaBetterSqlite3({
-      url: resolveSqliteUrl(process.env.DATABASE_URL ?? 'file:./dev.db'),
-    }),
-  });
+  const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
 
   try {
     const existing = await prisma.opportunity.count();

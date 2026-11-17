@@ -1,14 +1,12 @@
 import { execSync } from 'node:child_process';
-import { rmSync } from 'node:fs';
 import { join } from 'node:path';
+import { testDatabaseEnv } from './test-database.js';
 
-/** Base SQLite dédiée aux tests e2e, recréée à chaque lancement. */
+/** Base Neon de test, vidée et remigrée à chaque lancement. */
 export default function setup() {
-  const root = join(import.meta.dirname, '..');
-  rmSync(join(root, 'test.db'), { force: true });
-  execSync('npx prisma migrate deploy', {
-    cwd: root,
-    env: { ...process.env, DATABASE_URL: 'file:./test.db' },
+  execSync('npx prisma migrate reset --force', {
+    cwd: join(import.meta.dirname, '..'),
+    env: { ...process.env, ...testDatabaseEnv() },
     stdio: 'ignore',
   });
 }

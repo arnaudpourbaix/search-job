@@ -6,3 +6,4 @@ node_modules
 
 # Base de test e2e
 test.db
+.neon
