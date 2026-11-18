@@ -1,6 +1,5 @@
 import {
   Alert,
-  Anchor,
   Badge,
   Box,
   Button,
@@ -20,77 +19,18 @@ import { useDebouncedValue, useDisclosure, useLocalStorage } from '@mantine/hook
 import { IconPlus, IconSearch } from '@tabler/icons-react'
 import { useState } from 'react'
 import { Link, useNavigate } from 'react-router'
-import {
-  DuplicateCompanyIcon,
-  NextActionCell,
-  StageBadge,
-  StaleIcon,
-} from '../components/badges.tsx'
+import { NextActionCell, StageBadge } from '../components/badges.tsx'
+import { InterviewSteps } from '../components/InterviewSteps.tsx'
+import { LastContact, OpportunityName } from '../components/OpportunityParts.tsx'
+import { ClosedCampaignNotice } from '../components/CampaignSelect.tsx'
 import { OpportunityModal } from '../components/OpportunityModal.tsx'
-import {
-  dueStatus,
-  formatDay,
-  formatPay,
-  isClosed,
-  isStale,
-  opportunityName,
-  opportunitySubtitle,
-  STAGE_LABELS,
-} from '../format.ts'
+import { formatPay, isClosed, rowBackground } from '../format.ts'
+import { useCampaignSelection } from '../campaigns.ts'
 import { useOpportunities } from '../queries.ts'
-import { STAGES, type OpportunitySummary, type Stage } from '../types.ts'
+import { useStages } from '../settings.ts'
+import type { OpportunitySummary } from '../types.ts'
 
-/** Fond de ligne selon l'urgence (mêmes règles que l'ancien fichier Excel). */
-function rowBackground(o: OpportunitySummary): string | undefined {
-  if (isClosed(o.stage)) return 'var(--mantine-color-default-hover)'
-  const status = dueStatus(o.nextAction?.dueDate)
-  if (status === 'overdue') return 'var(--mantine-color-red-light)'
-  if (status === 'today') return 'var(--mantine-color-orange-light)'
-  return undefined
-}
-
-/** Entreprise (ou « Entreprise inconnue ») + « via intermédiaire · référence ». */
-function Name({ o, link }: { o: OpportunitySummary; link?: boolean }) {
-  const subtitle = opportunitySubtitle(o)
-  const name = (
-    <Text fw={500} fs={o.company ? undefined : 'italic'} lineClamp={1} span>
-      {opportunityName(o)}
-    </Text>
-  )
-  return (
-    <Box miw={0}>
-      <Group gap={4} wrap="nowrap">
-        {link ? (
-          <Anchor component={Link} to={`/pistes/${o.id}`} onClick={(e) => e.stopPropagation()}>
-            {name}
-          </Anchor>
-        ) : (
-          name
-        )}
-        {o.duplicateCompany && <DuplicateCompanyIcon />}
-      </Group>
-      {subtitle && (
-        <Text size="sm" c="dimmed" lineClamp={1}>
-          {subtitle}
-        </Text>
-      )}
-    </Box>
-  )
-}
-
-function LastContact({ o }: { o: OpportunitySummary }) {
-  const stale = isStale(o)
-  return (
-    <Group gap={4} wrap="nowrap">
-      <Text size="sm" c={stale ? 'red' : undefined} fs={stale ? 'italic' : undefined}>
-        {formatDay(o.lastContactAt)}
-      </Text>
-      {stale && <StaleIcon />}
-    </Group>
-  )
-}
-
-function OpportunityTable({ items }: { items: OpportunitySummary[] }) {
+function OpportunityTable({ items, showCampaign }: { items: OpportunitySummary[]; showCampaign: boolean }) {
   const navigate = useNavigate()
   return (
     <Table.ScrollContainer minWidth={900}>
@@ -117,10 +57,15 @@ function OpportunityTable({ items }: { items: OpportunitySummary[] }) {
               }}
             >
               <Table.Td>
-                <Name o={o} link />
+                <OpportunityName o={o} link showCampaign={showCampaign} />
               </Table.Td>
-              <Table.Td>
+              <Table.Td maw={220}>
                 <StageBadge stage={o.stage} />
+                {o.interviews && (
+                  <Box mt={6}>
+                    <InterviewSteps progress={o.interviews} />
+                  </Box>
+                )}
               </Table.Td>
               <Table.Td>
                 <Text size="sm">{o.title ?? '—'}</Text>
@@ -150,7 +95,7 @@ function OpportunityTable({ items }: { items: OpportunitySummary[] }) {
   )
 }
 
-function OpportunityCards({ items }: { items: OpportunitySummary[] }) {
+function OpportunityCards({ items, showCampaign }: { items: OpportunitySummary[]; showCampaign: boolean }) {
   return (
     <Stack gap="sm">
       {items.map((o) => (
@@ -163,13 +108,18 @@ function OpportunityCards({ items }: { items: OpportunitySummary[] }) {
           style={{ background: rowBackground(o), opacity: isClosed(o.stage) ? 0.6 : 1 }}
         >
           <Group justify="space-between" wrap="nowrap" align="flex-start">
-            <Name o={o} />
+            <OpportunityName o={o} showCampaign={showCampaign} />
             <StageBadge stage={o.stage} />
           </Group>
           {(o.title || formatPay(o)) && (
             <Text size="sm" mt={6}>
               {[o.title, formatPay(o)].filter(Boolean).join(' · ')}
             </Text>
+          )}
+          {o.interviews && (
+            <Box mt={8}>
+              <InterviewSteps progress={o.interviews} />
+            </Box>
           )}
           <Group justify="space-between" mt={6} wrap="nowrap">
             <NextActionCell action={o.nextAction} />
@@ -185,20 +135,22 @@ export function OpportunitiesPage() {
   const [search, setSearch] = useState('')
   const [q] = useDebouncedValue(search.trim(), 250)
   // Filtres mémorisés dans le navigateur.
-  const [stages, setStages] = useLocalStorage<Stage[]>({
-    key: 'pistes.stages',
+  const { data: allStages = [] } = useStages()
+  const [storedStageIds, setStageIds] = useLocalStorage<number[]>({
+    key: 'pistes.stageIds',
     defaultValue: [],
   })
-  const [active, setActive] = useLocalStorage<boolean>({
-    key: 'pistes.active',
-    defaultValue: true,
-  })
+  // Ignore les étapes mémorisées qui ont été supprimées depuis.
+  const stageIds = storedStageIds.filter((id) => allStages.some((s) => s.id === id))
+  // Pas mémorisé : la liste s'ouvre toujours sur les pistes actives.
+  const [active, setActive] = useState(true)
   const [creating, { open, close }] = useDisclosure()
-  const { data, isPending, isError, error, isFetching } = useOpportunities({
-    q,
-    stages,
-    active,
-  })
+  const { selected, isPending: campaignsPending } = useCampaignSelection()
+  const { data, isPending, isError, error, isFetching } = useOpportunities(
+    { q, stageIds, active, campaignId: selected?.id },
+    !campaignsPending,
+  )
+  const showCampaign = !selected
 
   return (
     <Stack>
@@ -217,6 +169,8 @@ export function OpportunitiesPage() {
         </Button>
       </Group>
 
+      <ClosedCampaignNotice />
+
       <Group align="flex-end" gap="sm">
         <TextInput
           placeholder="Rechercher (entreprise, intermédiaire, référence, contact, techno…)"
@@ -226,10 +180,10 @@ export function OpportunitiesPage() {
           style={{ flex: '1 1 260px' }}
         />
         <MultiSelect
-          placeholder={stages.length ? undefined : 'Toutes les étapes'}
-          data={STAGES.map((s) => ({ value: s, label: STAGE_LABELS[s] }))}
-          value={stages}
-          onChange={(v) => setStages(v as Stage[])}
+          placeholder={stageIds.length ? undefined : 'Toutes les étapes'}
+          data={allStages.map((s) => ({ value: String(s.id), label: s.label }))}
+          value={stageIds.map(String)}
+          onChange={(v) => setStageIds(v.map(Number))}
           clearable
           style={{ flex: '1 1 260px' }}
         />
@@ -256,10 +210,10 @@ export function OpportunitiesPage() {
       ) : (
         <>
           <Box visibleFrom="md">
-            <OpportunityTable items={data} />
+            <OpportunityTable items={data} showCampaign={showCampaign} />
           </Box>
           <Box hiddenFrom="md">
-            <OpportunityCards items={data} />
+            <OpportunityCards items={data} showCampaign={showCampaign} />
           </Box>
         </>
       )}

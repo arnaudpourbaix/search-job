@@ -15,13 +15,20 @@ import type {
   OpportunitySummary,
   Ref,
   RefLists,
-  Stage,
 } from './types.ts'
 
 export const queryClient: QueryClient = new QueryClient({
-  // Toute modification peut changer les alertes (action faite, échange ajouté…).
+  // Toute modification peut changer les alertes (action faite, échange ajouté…)
+  // et les chiffres des campagnes (pistes créées, gagnées…).
   mutationCache: new MutationCache({
-    onSettled: () => queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEY }),
+    onSettled: () =>
+      Promise.all([
+        queryClient.invalidateQueries({ queryKey: NOTIFICATION_KEY }),
+        queryClient.invalidateQueries({ queryKey: ['campaigns'] }),
+        queryClient.invalidateQueries({ queryKey: ['dashboard'] }),
+        // Pistes et échanges d'un contact.
+        queryClient.invalidateQueries({ queryKey: ['contacts'] }),
+      ]),
   }),
   defaultOptions: {
     queries: { staleTime: 30_000, retry: 1 },
@@ -32,20 +39,28 @@ export const queryClient: QueryClient = new QueryClient({
   },
 })
 
-export type OpportunityFilters = { q?: string; stages?: Stage[]; active?: boolean }
+export type OpportunityFilters = {
+  q?: string
+  stageIds?: number[]
+  active?: boolean
+  /** Absent = toutes les campagnes. */
+  campaignId?: number
+}
 
 function filtersToQuery(f: OpportunityFilters): string {
   const params = new URLSearchParams()
   if (f.q) params.set('q', f.q)
-  if (f.stages?.length) params.set('stages', f.stages.join(','))
+  if (f.stageIds?.length) params.set('stageIds', f.stageIds.join(','))
   if (f.active) params.set('active', 'true')
+  if (f.campaignId) params.set('campaignId', String(f.campaignId))
   const s = params.toString()
   return s ? `?${s}` : ''
 }
 
-export const useOpportunities = (filters: OpportunityFilters) =>
+export const useOpportunities = (filters: OpportunityFilters, enabled = true) =>
   useQuery({
     queryKey: ['opportunities', filters],
+    enabled,
     queryFn: () => api.get<OpportunitySummary[]>(`/opportunities${filtersToQuery(filters)}`),
     placeholderData: (previous) => previous,
   })
@@ -105,6 +120,13 @@ export function useDeleteOpportunity() {
   })
 }
 
+export type InteractionInput = {
+  date: Day
+  channel: string | null
+  summary: string
+  contactId: number | null
+}
+
 /** Échanges et actions : la fiche est rechargée après chaque modification. */
 export function useJournal(opportunityId: number) {
   const qc = useQueryClient()
@@ -116,7 +138,7 @@ export function useJournal(opportunityId: number) {
 
   return {
     addInteraction: useMutation({
-      mutationFn: (body: { date: Day; channel: string | null; summary: string }) =>
+      mutationFn: (body: InteractionInput) =>
         api.post<OpportunityDetail>(`/opportunities/${opportunityId}/interactions`, body),
       onSuccess: refresh,
     }),
@@ -124,12 +146,7 @@ export function useJournal(opportunityId: number) {
       mutationFn: ({
         id,
         ...body
-      }: {
-        id: number
-        date: Day
-        channel: string | null
-        summary: string
-      }) => api.patch<void>(`/interactions/${id}`, body),
+      }: InteractionInput & { id: number }) => api.patch<void>(`/interactions/${id}`, body),
       onSuccess: reload,
     }),
     removeInteraction: useMutation({

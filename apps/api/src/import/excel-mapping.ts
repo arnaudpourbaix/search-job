@@ -2,24 +2,25 @@
  * Conversion des lignes de l'ancien fichier Excel (onglet « Pistes ») vers le
  * modèle de données. Fonctions pures : aucune dépendance à Prisma ni à exceljs.
  */
-import { Stage } from '../generated/prisma/enums.js';
+import type { StageCode } from '../common/stages.js';
 
 /** Statuts considérés comme clôturés. */
-export const CLOSED_STAGES: readonly Stage[] = [
-  Stage.WON,
-  Stage.REJECTED,
-  Stage.ABANDONED,
+/** Étapes d'origine qui clôturent une piste. */
+export const CLOSED_STAGES: readonly StageCode[] = [
+  'WON',
+  'REJECTED',
+  'ABANDONED',
 ];
 
-const STAGE_BY_LABEL: Record<string, Stage> = {
-  'a contacter': Stage.TO_CONTACT,
-  'echange recruteur': Stage.RECRUITER_TALK,
-  'dossier envoye': Stage.APPLICATION_SENT,
-  'entretien client': Stage.CLIENT_INTERVIEW,
-  proposition: Stage.OFFER,
-  gagne: Stage.WON,
-  refuse: Stage.REJECTED,
-  abandonne: Stage.ABANDONED,
+const STAGE_BY_LABEL: Record<string, StageCode> = {
+  'a contacter': 'TO_CONTACT',
+  'echange recruteur': 'RECRUITER_TALK',
+  'dossier envoye': 'APPLICATION_SENT',
+  'entretien client': 'CLIENT_INTERVIEW',
+  proposition: 'OFFER',
+  gagne: 'WON',
+  refuse: 'REJECTED',
+  abandonne: 'ABANDONED',
 };
 
 /** Canaux connus (liste « Canal ») ; une plateforme qui y figure sert de canal. */
@@ -65,9 +66,9 @@ export function toDay(value: unknown): Date | null {
   );
 }
 
-export function parseStage(value: unknown): Stage {
+export function parseStage(value: unknown): StageCode {
   const text = cleanText(value);
-  if (!text) return Stage.TO_CONTACT;
+  if (!text) return 'TO_CONTACT';
   const stage = STAGE_BY_LABEL[normalize(text)];
   if (!stage) throw new Error(`Étape inconnue : « ${text} »`);
   return stage;
@@ -143,7 +144,7 @@ export type MappedOpportunity = {
   salaryMax: number | null;
   tjmMin: number | null;
   tjmMax: number | null;
-  stage: Stage;
+  stage: StageCode;
   url: string | null;
   notes: string | null;
   interactions: { date: Date; channel: string | null; summary: string }[];

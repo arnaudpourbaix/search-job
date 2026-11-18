@@ -4,8 +4,20 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
-import { Stage } from '../generated/prisma/enums.js';
+import {
+  assertContacts,
+  contactRef,
+  interviewContactsInclude,
+  opportunityContactsInclude,
+} from '../common/contacts.js';
 import { formatDay } from '../common/dates.js';
+import {
+  formatRound,
+  interviewProgress,
+  isHeld,
+  interviewSummarySelect,
+} from '../common/interviews.js';
+import { openStageFilter, stageRef } from '../common/stages.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
   CreateOpportunityDto,
@@ -13,32 +25,39 @@ import type {
   UpdateOpportunityDto,
 } from './dto.js';
 
-export const CLOSED_STAGES: Stage[] = [
-  Stage.WON,
-  Stage.REJECTED,
-  Stage.ABANDONED,
-];
-
 const MISSING_PARTY = "Renseigner au moins l'entreprise ou l'intermédiaire.";
 
 const companyRef = { select: { id: true, name: true } } as const;
-const contactRef = {
-  select: { id: true, name: true, email: true, phone: true },
+const campaignRef = {
+  select: { id: true, name: true, endDate: true },
 } as const;
 
 const listInclude = {
+  stage: stageRef,
   company: companyRef,
   intermediary: companyRef,
-  contact: contactRef,
+  contacts: opportunityContactsInclude,
+  campaign: campaignRef,
   tags: { select: { name: true }, orderBy: { name: 'asc' } },
   interactions: { select: { date: true } },
   actions: {
     where: { doneAt: null },
     select: { id: true, label: true, dueDate: true },
   },
+  interviews: interviewSummarySelect,
 } satisfies Prisma.OpportunityInclude;
 
 const day = (d: Date | null) => (d ? formatDay(d) : null);
+
+/** Date de fin au format jour (AAAA-MM-JJ), comme partout ailleurs. */
+const formatCampaign = (c: {
+  id: number;
+  name: string;
+  endDate: Date | null;
+}) => ({
+  ...c,
+  endDate: day(c.endDate),
+});
 
 /** Tri des actions ouvertes : échéance la plus proche d'abord, sans date en dernier. */
 function sortOpen<T extends { id: number; dueDate: Date | null }>(
@@ -61,8 +80,15 @@ function nextAction(
     : null;
 }
 
-function contactDates(interactions: { date: Date }[]) {
-  const times = interactions.map((i) => i.date.getTime());
+/** Premier et dernier contact : échanges du journal et tours ayant eu lieu. */
+function contactDates(
+  interactions: { date: Date }[],
+  interviews: Parameters<typeof isHeld>[0][],
+) {
+  const times = [
+    ...interactions.map((i) => i.date),
+    ...interviews.filter(isHeld).map((r) => r.date),
+  ].map((d) => d.getTime());
   if (!times.length) return { firstContactAt: null, lastContactAt: null };
   return {
     firstContactAt: formatDay(new Date(Math.min(...times))),
@@ -76,10 +102,11 @@ export class OpportunitiesService {
 
   async list(query: ListOpportunitiesQuery) {
     const where: Prisma.OpportunityWhereInput = {};
+    if (query.campaignId) where.campaignId = query.campaignId;
     const stageFilters: Prisma.OpportunityWhereInput[] = [];
-    if (query.stages?.length)
-      stageFilters.push({ stage: { in: query.stages } });
-    if (query.active) stageFilters.push({ stage: { notIn: CLOSED_STAGES } });
+    if (query.stageIds?.length)
+      stageFilters.push({ stageId: { in: query.stageIds } });
+    if (query.active) stageFilters.push(openStageFilter);
     if (stageFilters.length) where.AND = stageFilters;
     if (query.q) {
       // Recherche insensible à la casse (Postgres est sensible par défaut).
@@ -90,7 +117,7 @@ export class OpportunitiesService {
         { location: contains },
         { company: { name: contains } },
         { intermediary: { name: contains } },
-        { contact: { name: contains } },
+        { contacts: { some: { contact: { name: contains } } } },
         { tags: { some: { name: contains } } },
       ];
     }
@@ -101,14 +128,17 @@ export class OpportunitiesService {
         include: listInclude,
         orderBy: { updatedAt: 'desc' },
       }),
+      // Doublons cherchés au sein d'une même campagne.
       this.prisma.opportunity.groupBy({
-        by: ['companyId'],
+        by: ['campaignId', 'companyId'],
         where: { companyId: { not: null } },
         _count: { _all: true },
       }),
     ]);
     const duplicated = new Set(
-      companyCounts.filter((c) => c._count._all > 1).map((c) => c.companyId),
+      companyCounts
+        .filter((c) => c._count._all > 1)
+        .map((c) => `${c.campaignId}:${c.companyId}`),
     );
 
     return rows.map((o) => ({
@@ -127,12 +157,16 @@ export class OpportunitiesService {
       company: o.company,
       intermediary: o.intermediary,
       intermediaryType: o.intermediaryType,
-      contact: o.contact,
+      contacts: o.contacts.map((c) => c.contact),
       tags: o.tags.map((t) => t.name),
-      ...contactDates(o.interactions),
+      ...contactDates(o.interactions, o.interviews),
       nextAction: nextAction(o.actions),
       openActions: o.actions.length,
-      duplicateCompany: o.companyId !== null && duplicated.has(o.companyId),
+      interviews: interviewProgress(o.interviews),
+      campaign: formatCampaign(o.campaign),
+      duplicateCompany:
+        o.companyId !== null &&
+        duplicated.has(`${o.campaignId}:${o.companyId}`),
       updatedAt: o.updatedAt,
     }));
   }
@@ -143,10 +177,19 @@ export class OpportunitiesService {
       include: {
         company: companyRef,
         intermediary: companyRef,
-        contact: contactRef,
+        contacts: opportunityContactsInclude,
+        campaign: campaignRef,
+        stage: stageRef,
         tags: { select: { name: true }, orderBy: { name: 'asc' } },
-        interactions: { orderBy: [{ date: 'desc' }, { id: 'desc' }] },
+        interactions: {
+          orderBy: [{ date: 'desc' }, { id: 'desc' }],
+          include: { contact: contactRef },
+        },
         actions: { orderBy: { id: 'asc' } },
+        interviews: {
+          orderBy: [{ order: 'asc' }, { id: 'asc' }],
+          include: { contacts: interviewContactsInclude },
+        },
       },
     });
     if (!o) throw new NotFoundException(`Piste ${id} introuvable`);
@@ -155,21 +198,37 @@ export class OpportunitiesService {
     const duplicateCompany =
       o.companyId !== null &&
       (await this.prisma.opportunity.count({
-        where: { companyId: o.companyId },
+        where: { companyId: o.companyId, campaignId: o.campaignId },
       })) > 1;
 
     const openActions = o.actions.filter((a) => !a.doneAt);
     return {
       ...o,
+      contacts: o.contacts.map((c) => c.contact),
+      campaign: formatCampaign(o.campaign),
       tags: o.tags.map((t) => t.name),
-      ...contactDates(o.interactions),
+      ...contactDates(o.interactions, o.interviews),
       nextAction: nextAction(openActions),
       duplicateCompany,
+      interviewProgress: interviewProgress(o.interviews),
+      interviews: o.interviews.map((r) =>
+        formatRound({
+          id: r.id,
+          type: r.type,
+          label: r.label,
+          date: r.date,
+          time: r.time,
+          status: r.status,
+          notes: r.notes,
+          contacts: r.contacts.map((c) => c.contact),
+        }),
+      ),
       interactions: o.interactions.map((i) => ({
         id: i.id,
         date: formatDay(i.date),
         channel: i.channel,
         summary: i.summary,
+        contact: i.contact,
       })),
       // Ouvertes d'abord (par échéance, sans date en dernier), puis faites.
       actions: [
@@ -188,14 +247,20 @@ export class OpportunitiesService {
     if (!dto.companyName && !dto.intermediaryName) {
       throw new BadRequestException(MISSING_PARTY);
     }
+    const campaignId = dto.campaignId ?? (await this.currentCampaignId());
+    const stageId = dto.stageId ?? (await this.firstStageId());
     const { id } = await this.prisma.$transaction(async (tx) => {
-      const rel = await this.resolveRelations(tx, dto, null);
+      const rel = await this.resolveRelations(tx, dto);
       return tx.opportunity.create({
         data: {
           ...this.scalarFields(dto),
+          campaignId,
+          stageId,
           companyId: rel.companyId,
           intermediaryId: rel.intermediaryId,
-          contactId: rel.contactId,
+          contacts: rel.contactIds && {
+            create: rel.contactIds.map((contactId) => ({ contactId })),
+          },
           tags: rel.tags && { connectOrCreate: rel.tags },
         },
         select: { id: true },
@@ -211,7 +276,7 @@ export class OpportunitiesService {
         select: { companyId: true, intermediaryId: true },
       });
       if (!current) throw new NotFoundException(`Piste ${id} introuvable`);
-      const rel = await this.resolveRelations(tx, dto, current);
+      const rel = await this.resolveRelations(tx, dto);
 
       const companyId =
         rel.companyId === undefined ? current.companyId : rel.companyId;
@@ -231,12 +296,48 @@ export class OpportunitiesService {
           intermediaryId: rel.intermediaryId,
           // Sans intermédiaire, son type n'a plus de sens.
           ...(intermediaryId === null ? { intermediaryType: null } : {}),
-          contactId: rel.contactId,
+          // Liste complète : les contacts déjà présents gardent leur ordre.
+          contacts: rel.contactIds && {
+            deleteMany: { contactId: { notIn: rel.contactIds } },
+            createMany: {
+              data: rel.contactIds.map((contactId) => ({ contactId })),
+              skipDuplicates: true,
+            },
+          },
           tags: rel.tags && { set: [], connectOrCreate: rel.tags },
         },
       });
     });
     return this.get(id);
+  }
+
+  /** Première étape du pipeline : étape par défaut d'une nouvelle piste. */
+  private async firstStageId(): Promise<number> {
+    const stage = await this.prisma.pipelineStage.findFirst({
+      orderBy: [{ order: 'asc' }, { id: 'asc' }],
+      select: { id: true },
+    });
+    if (!stage) {
+      throw new BadRequestException(
+        'Aucune étape définie : en créer une dans les paramètres.',
+      );
+    }
+    return stage.id;
+  }
+
+  /** Campagne en cours la plus récente : destination par défaut d'une nouvelle piste. */
+  private async currentCampaignId(): Promise<number> {
+    const campaign = await this.prisma.campaign.findFirst({
+      where: { endDate: null },
+      orderBy: [{ startDate: 'desc' }, { id: 'desc' }],
+      select: { id: true },
+    });
+    if (!campaign) {
+      throw new BadRequestException(
+        "Aucune campagne en cours : créer d'abord une campagne.",
+      );
+    }
+    return campaign.id;
   }
 
   async remove(id: number) {
@@ -257,7 +358,8 @@ export class OpportunitiesService {
       salaryMax: dto.salaryMax,
       tjmMin: dto.tjmMin,
       tjmMax: dto.tjmMax,
-      stage: dto.stage,
+      stageId: dto.stageId,
+      campaignId: dto.campaignId,
       url: dto.url,
       notes: dto.notes,
       intermediaryType:
@@ -266,13 +368,12 @@ export class OpportunitiesService {
   }
 
   /**
-   * Entreprise, intermédiaire, contact et tags, désignés par leur nom.
+   * Entreprise, intermédiaire et tags désignés par leur nom ; contacts du carnet.
    * undefined = inchangé, null = retiré.
    */
   private async resolveRelations(
     tx: Prisma.TransactionClient,
     dto: UpdateOpportunityDto,
-    current: { companyId: number | null; intermediaryId: number | null } | null,
   ) {
     const companyId = async (name: string | null | undefined) => {
       if (name === undefined || name === null) return name;
@@ -287,32 +388,8 @@ export class OpportunitiesService {
     const company = await companyId(dto.companyName);
     const intermediary = await companyId(dto.intermediaryName);
 
-    let contactId: number | null | undefined;
-    if (dto.contact === null) {
-      contactId = null;
-    } else if (dto.contact) {
-      // Le contact appartient à l'intermédiaire s'il y en a un, sinon à l'entreprise.
-      const finalIntermediary =
-        intermediary !== undefined
-          ? intermediary
-          : (current?.intermediaryId ?? null);
-      const finalCompany =
-        company !== undefined ? company : (current?.companyId ?? null);
-      const owner = finalIntermediary ?? finalCompany;
-      const { name, email, phone } = dto.contact;
-      const existing = await tx.contact.findFirst({
-        where: { name, companyId: owner },
-      });
-      const contact = existing
-        ? await tx.contact.update({
-            where: { id: existing.id },
-            data: { email, phone },
-          })
-        : await tx.contact.create({
-            data: { name, email, phone, companyId: owner },
-          });
-      contactId = contact.id;
-    }
+    const contactIds =
+      dto.contactIds && (await assertContacts(tx, dto.contactIds));
 
     const tags = dto.tags
       ? [...new Set(dto.tags.map((t) => t.trim()).filter(Boolean))].map(
@@ -323,7 +400,7 @@ export class OpportunitiesService {
     return {
       companyId: company,
       intermediaryId: intermediary,
-      contactId,
+      contactIds,
       tags,
     };
   }

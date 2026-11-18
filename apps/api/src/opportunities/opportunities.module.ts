@@ -2,8 +2,10 @@ import { Module } from '@nestjs/common';
 import {
   ActionsController,
   InteractionsController,
+  InterviewsController,
   OpportunitiesController,
 } from './opportunities.controller.js';
+import { InterviewsService } from './interviews.service.js';
 import { JournalService } from './journal.service.js';
 import { OpportunitiesService } from './opportunities.service.js';
 
@@ -12,8 +14,9 @@ import { OpportunitiesService } from './opportunities.service.js';
     OpportunitiesController,
     InteractionsController,
     ActionsController,
+    InterviewsController,
   ],
-  providers: [OpportunitiesService, JournalService],
+  providers: [OpportunitiesService, JournalService, InterviewsService],
   exports: [OpportunitiesService],
 })
 export class OpportunitiesModule {}

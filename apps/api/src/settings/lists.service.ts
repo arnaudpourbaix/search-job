@@ -13,6 +13,7 @@ export const LIST_CATEGORIES = [
   'CONTRACT_TYPE',
   'INTERMEDIARY_TYPE',
   'CHANNEL',
+  'INTERVIEW_TYPE',
 ] as const;
 export type ListCategory = (typeof LIST_CATEGORIES)[number];
 
@@ -23,6 +24,13 @@ async function usageByValue(
   db: Db,
   category: ListCategory,
 ): Promise<Map<string, number>> {
+  if (category === 'INTERVIEW_TYPE') {
+    const rows = await db.interview.groupBy({
+      by: ['type'],
+      _count: { _all: true },
+    });
+    return new Map(rows.map((r) => [r.type, r._count._all]));
+  }
   const rows =
     category === 'CHANNEL'
       ? (
@@ -49,7 +57,7 @@ async function usageByValue(
 }
 
 function fieldOf(
-  category: Exclude<ListCategory, 'CHANNEL'>,
+  category: Exclude<ListCategory, 'CHANNEL' | 'INTERVIEW_TYPE'>,
 ): 'platform' | 'contractType' | 'intermediaryType';
 function fieldOf(category: ListCategory): string;
 function fieldOf(category: ListCategory) {
@@ -62,6 +70,8 @@ function fieldOf(category: ListCategory) {
       return 'intermediaryType';
     case 'CHANNEL':
       return 'channel';
+    case 'INTERVIEW_TYPE':
+      return 'type';
   }
 }
 
@@ -72,6 +82,13 @@ async function replaceValue(
   from: string,
   to: string,
 ): Promise<number> {
+  if (category === 'INTERVIEW_TYPE') {
+    const { count } = await db.interview.updateMany({
+      where: { type: from },
+      data: { type: to },
+    });
+    return count;
+  }
   if (category === 'CHANNEL') {
     const { count } = await db.interaction.updateMany({
       where: { channel: from },

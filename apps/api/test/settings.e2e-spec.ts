@@ -17,7 +17,8 @@ describe('Settings / lists (e2e)', () => {
   let app: INestApplication<App>;
   const http = () => request(app.getHttpServer());
   const platforms = async () => {
-    const lists = (await http().get('/settings/lists').expect(200)).body as List[];
+    const lists = (await http().get('/settings/lists').expect(200))
+      .body as List[];
     return lists.find((l) => l.category === 'PLATFORM')!;
   };
 
@@ -29,34 +30,61 @@ describe('Settings / lists (e2e)', () => {
     app.useGlobalFilters(
       new PrismaExceptionFilter(app.get(HttpAdapterHost).httpAdapter),
     );
-    app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
     await app.init();
+    // Une campagne en cours est nécessaire pour créer des pistes (201, ou 409 si déjà là).
+    await request(app.getHttpServer())
+      .post('/campaigns')
+      .send({ name: 'Campagne de test' });
   });
 
   afterAll(async () => {
     await app.close();
   });
 
-  it('liste les 4 catégories', async () => {
-    const lists = (await http().get('/settings/lists').expect(200)).body as List[];
+  it('liste les 5 catégories', async () => {
+    const lists = (await http().get('/settings/lists').expect(200))
+      .body as List[];
     expect(lists.map((l) => l.category)).toEqual([
       'PLATFORM',
       'CONTRACT_TYPE',
       'INTERMEDIARY_TYPE',
       'CHANNEL',
+      'INTERVIEW_TYPE',
     ]);
   });
 
   it('ajoute des valeurs à la fin, refuse doublon (casse/accents) et vide', async () => {
-    await http().post('/settings/lists/PLATFORM').send({ value: ' Malt ' }).expect(201);
-    await http().post('/settings/lists/PLATFORM').send({ value: 'Free-Work' }).expect(201);
-    await http().post('/settings/lists/PLATFORM').send({ value: 'Indeed' }).expect(201);
-    await http().post('/settings/lists/PLATFORM').send({ value: 'MALT' }).expect(409);
-    await http().post('/settings/lists/PLATFORM').send({ value: '  ' }).expect(400);
+    await http()
+      .post('/settings/lists/PLATFORM')
+      .send({ value: ' Malt ' })
+      .expect(201);
+    await http()
+      .post('/settings/lists/PLATFORM')
+      .send({ value: 'Free-Work' })
+      .expect(201);
+    await http()
+      .post('/settings/lists/PLATFORM')
+      .send({ value: 'Indeed' })
+      .expect(201);
+    await http()
+      .post('/settings/lists/PLATFORM')
+      .send({ value: 'MALT' })
+      .expect(409);
+    await http()
+      .post('/settings/lists/PLATFORM')
+      .send({ value: '  ' })
+      .expect(400);
     await http().post('/settings/lists/NOPE').send({ value: 'x' }).expect(400);
 
     const list = await platforms();
-    expect(list.items.map((i) => i.value)).toEqual(['Malt', 'Free-Work', 'Indeed']);
+    expect(list.items.map((i) => i.value)).toEqual([
+      'Malt',
+      'Free-Work',
+      'Indeed',
+    ]);
   });
 
   it('compte les usages et remonte les valeurs hors liste', async () => {
@@ -71,7 +99,9 @@ describe('Settings / lists (e2e)', () => {
 
     const list = await platforms();
     expect(list.items.find((i) => i.value === 'Malt')?.usage).toBe(1);
-    expect(list.unlisted).toEqual([{ value: 'Welcome to the Jungle', usage: 1 }]);
+    expect(list.unlisted).toEqual([
+      { value: 'Welcome to the Jungle', usage: 1 },
+    ]);
   });
 
   it('renomme une valeur et la répercute sur les pistes', async () => {
@@ -82,8 +112,9 @@ describe('Settings / lists (e2e)', () => {
       .expect(200);
     expect(res.body).toMatchObject({ value: 'Malt.fr', updated: 1 });
 
-    const opportunities = (await http().get('/opportunities?q=Initech').expect(200))
-      .body as { platform: string }[];
+    const opportunities = (
+      await http().get('/opportunities?q=Initech').expect(200)
+    ).body as { platform: string }[];
     expect(opportunities[0].platform).toBe('Malt.fr');
 
     const indeed = (await platforms()).items.find((i) => i.value === 'Indeed')!;
@@ -141,11 +172,15 @@ describe('Settings / lists (e2e)', () => {
   });
 
   it('répercute un renommage de canal sur le journal', async () => {
-    const lists = (await http().get('/settings/lists').expect(200)).body as List[];
+    const lists = (await http().get('/settings/lists').expect(200))
+      .body as List[];
     let channel = lists.find((l) => l.category === 'CHANNEL')!.items[0];
     if (!channel) {
       channel = (
-        await http().post('/settings/lists/CHANNEL').send({ value: 'Visio' }).expect(201)
+        await http()
+          .post('/settings/lists/CHANNEL')
+          .send({ value: 'Visio' })
+          .expect(201)
       ).body as Item;
     }
     const o = (
@@ -163,8 +198,11 @@ describe('Settings / lists (e2e)', () => {
       .patch('/settings/lists/items/' + channel.id)
       .send({ value: 'Visioconférence' })
       .expect(200);
-    const detail = (await http().get('/opportunities/' + o.id).expect(200))
-      .body as { interactions: { channel: string }[] };
+    const detail = (
+      await http()
+        .get('/opportunities/' + o.id)
+        .expect(200)
+    ).body as { interactions: { channel: string }[] };
     expect(detail.interactions[0].channel).toBe('Visioconférence');
   });
 });

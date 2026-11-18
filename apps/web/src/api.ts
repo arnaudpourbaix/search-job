@@ -37,6 +37,3 @@ export const api = {
   put: <T = void>(path: string, body: unknown) => request<T>('PUT', path, body),
   delete: <T = void>(path: string) => request<T>('DELETE', path),
 }
-
-/** Compat : utilisé par le tableau de bord. */
-export const apiGet = api.get

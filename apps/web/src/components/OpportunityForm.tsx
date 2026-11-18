@@ -12,20 +12,21 @@ import {
   TextInput,
 } from '@mantine/core'
 import { useForm } from '@mantine/form'
-import { STAGE_LABELS } from '../format.ts'
+import { useCampaigns } from '../campaigns.ts'
+import { ContactsPicker } from './ContactPicker.tsx'
 import { useCompanies, useRefLists, useTags } from '../queries.ts'
-import { STAGES, type OpportunityDetail, type OpportunityInput, type Stage } from '../types.ts'
+import { useStages } from '../settings.ts'
+import type { OpportunityDetail, OpportunityInput } from '../types.ts'
 
 type Values = {
   reference: string
   title: string
-  stage: Stage
+  stageId: string | null
+  campaignId: string | null
   companyName: string
   intermediaryName: string
   intermediaryType: string | null
-  contactName: string
-  contactEmail: string
-  contactPhone: string
+  contactIds: number[]
   platform: string
   contractType: string
   location: string
@@ -43,17 +44,21 @@ type Values = {
 const text = (v: string) => (v.trim() === '' ? null : v.trim())
 const num = (v: number | string) => (v === '' || v === null ? null : Number(v))
 
-function initialValues(o?: OpportunityDetail): Values {
+function initialValues(
+  o?: OpportunityDetail,
+  defaultCampaignId?: number,
+  defaultStageId?: number,
+): Values {
+  const campaignId = o?.campaign.id ?? defaultCampaignId
   return {
     reference: o?.reference ?? '',
     title: o?.title ?? '',
-    stage: o?.stage ?? 'TO_CONTACT',
+    stageId: String(o?.stage.id ?? defaultStageId ?? '') || null,
+    campaignId: campaignId ? String(campaignId) : null,
     companyName: o?.company?.name ?? '',
     intermediaryName: o?.intermediary?.name ?? '',
     intermediaryType: o?.intermediaryType ?? null,
-    contactName: o?.contact?.name ?? '',
-    contactEmail: o?.contact?.email ?? '',
-    contactPhone: o?.contact?.phone ?? '',
+    contactIds: o?.contacts.map((c) => c.id) ?? [],
     platform: o?.platform ?? '',
     contractType: o?.contractType ?? '',
     location: o?.location ?? '',
@@ -70,17 +75,15 @@ function initialValues(o?: OpportunityDetail): Values {
 }
 
 function toInput(v: Values): OpportunityInput {
-  const contactName = text(v.contactName)
   return {
     reference: text(v.reference),
     title: text(v.title),
-    stage: v.stage,
+    stageId: v.stageId ? Number(v.stageId) : undefined,
+    campaignId: Number(v.campaignId),
     companyName: text(v.companyName),
     intermediaryName: text(v.intermediaryName),
     intermediaryType: text(v.intermediaryName) ? v.intermediaryType : null,
-    contact: contactName
-      ? { name: contactName, email: text(v.contactEmail), phone: text(v.contactPhone) }
-      : null,
+    contactIds: v.contactIds,
     platform: text(v.platform),
     contractType: text(v.contractType),
     location: text(v.location),
@@ -101,26 +104,35 @@ const minMax = (min: number | string, max: number | string) =>
 
 type Props = {
   opportunity?: OpportunityDetail
+  /** Campagne proposée pour une nouvelle piste. */
+  defaultCampaignId?: number
   submitting?: boolean
   onSubmit: (input: OpportunityInput) => void
   onCancel: () => void
 }
 
-export function OpportunityForm({ opportunity, submitting, onSubmit, onCancel }: Props) {
+export function OpportunityForm({
+  opportunity,
+  defaultCampaignId,
+  submitting,
+  onSubmit,
+  onCancel,
+}: Props) {
   const { data: lists } = useRefLists()
+  const { data: campaigns = [] } = useCampaigns()
+  const { data: stages = [] } = useStages()
   const { data: companies = [] } = useCompanies()
   const { data: tags = [] } = useTags()
   const companyNames = companies.map((c) => c.name)
 
   const form = useForm<Values>({
-    initialValues: initialValues(opportunity),
+    initialValues: initialValues(opportunity, defaultCampaignId, stages[0]?.id),
     validate: {
+      campaignId: (v) => (v ? null : 'Choisir une campagne'),
       companyName: (v, all) =>
         v.trim() || all.intermediaryName.trim()
           ? null
           : "Renseigner l'entreprise, ou au moins l'intermédiaire",
-      contactEmail: (v) =>
-        !v.trim() || /^\S+@\S+\.\S+$/.test(v.trim()) ? null : 'Email invalide',
       url: (v) => (!v.trim() || /^https?:\/\//i.test(v.trim()) ? null : 'URL invalide'),
       salaryMax: (v, all) => minMax(all.salaryMin, v),
       tjmMax: (v, all) => minMax(all.tjmMin, v),
@@ -141,9 +153,9 @@ export function OpportunityForm({ opportunity, submitting, onSubmit, onCancel }:
           <Select
             label="Étape"
             description="Avancement de la candidature"
-            data={STAGES.map((s) => ({ value: s, label: STAGE_LABELS[s] }))}
+            data={stages.map((s) => ({ value: String(s.id), label: s.label }))}
             allowDeselect={false}
-            {...form.getInputProps('stage')}
+            {...form.getInputProps('stageId')}
           />
           <Autocomplete
             label="Intermédiaire"
@@ -160,6 +172,16 @@ export function OpportunityForm({ opportunity, submitting, onSubmit, onCancel }:
             {...form.getInputProps('intermediaryType')}
           />
         </SimpleGrid>
+        <Select
+          label="Campagne"
+          description="Recherche à laquelle la piste appartient"
+          data={campaigns.map((c) => ({
+            value: String(c.id),
+            label: c.endDate ? `${c.name} (terminée)` : c.name,
+          }))}
+          allowDeselect={false}
+          {...form.getInputProps('campaignId')}
+        />
 
         <Divider label="Poste" labelPosition="left" />
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
@@ -189,15 +211,14 @@ export function OpportunityForm({ opportunity, submitting, onSubmit, onCancel }:
           <TextInput label="Lien de l'annonce" type="url" {...form.getInputProps('url')} />
         </SimpleGrid>
 
-        <Divider
-          label="Contact (chez l'intermédiaire s'il y en a un)"
-          labelPosition="left"
+        <Divider label="Contacts" labelPosition="left" />
+        <ContactsPicker
+          value={form.values.contactIds}
+          onChange={(ids) => form.setFieldValue('contactIds', ids)}
+          defaultCompany={
+            text(form.values.intermediaryName) ?? text(form.values.companyName)
+          }
         />
-        <SimpleGrid cols={{ base: 1, sm: 3 }}>
-          <TextInput label="Nom" {...form.getInputProps('contactName')} />
-          <TextInput label="Email" type="email" {...form.getInputProps('contactEmail')} />
-          <TextInput label="Téléphone" type="tel" {...form.getInputProps('contactPhone')} />
-        </SimpleGrid>
 
         <Divider label="Conditions" labelPosition="left" />
         <SimpleGrid cols={{ base: 2, sm: 3 }}>

@@ -1,5 +1,6 @@
 import {
   ArgumentsHost,
+  BadRequestException,
   Catch,
   ConflictException,
   ExceptionFilter,
@@ -19,6 +20,12 @@ export class PrismaExceptionFilter
       case 'P2002':
         return super.catch(
           new ConflictException('Cette valeur existe déjà (doit être unique).'),
+          host,
+        );
+      case 'P2003':
+        // Clé étrangère : élément lié inexistant, ou encore utilisé.
+        return super.catch(
+          new BadRequestException('Élément lié introuvable ou encore utilisé.'),
           host,
         );
       case 'P2025':

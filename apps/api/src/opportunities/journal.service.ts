@@ -1,4 +1,5 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
+import { assertContacts, linkContacts } from '../common/contacts.js';
 import { parseDay } from '../common/dates.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
@@ -28,25 +29,38 @@ export class JournalService {
 
   async addInteraction(opportunityId: number, dto: CreateInteractionDto) {
     await this.assertOpportunity(opportunityId);
-    await this.prisma.interaction.create({
-      data: {
-        opportunityId,
-        date: parseDay(dto.date),
-        channel: dto.channel ?? null,
-        summary: dto.summary,
-      },
+    await this.prisma.$transaction(async (tx) => {
+      const contactId = dto.contactId ?? null;
+      if (contactId) await assertContacts(tx, [contactId]);
+      await tx.interaction.create({
+        data: {
+          opportunityId,
+          date: parseDay(dto.date),
+          channel: dto.channel ?? null,
+          summary: dto.summary,
+          contactId,
+        },
+      });
+      // L'interlocuteur fait partie des contacts de la piste.
+      if (contactId) await linkContacts(tx, opportunityId, [contactId]);
     });
     await this.touch(opportunityId);
   }
 
   async updateInteraction(id: number, dto: UpdateInteractionDto) {
-    const { opportunityId } = await this.prisma.interaction.update({
-      where: { id },
-      data: {
-        date: dto.date === undefined ? undefined : parseDay(dto.date),
-        channel: dto.channel,
-        summary: dto.summary,
-      },
+    const opportunityId = await this.prisma.$transaction(async (tx) => {
+      if (dto.contactId) await assertContacts(tx, [dto.contactId]);
+      const { opportunityId } = await tx.interaction.update({
+        where: { id },
+        data: {
+          date: dto.date === undefined ? undefined : parseDay(dto.date),
+          channel: dto.channel,
+          summary: dto.summary,
+          contactId: dto.contactId,
+        },
+      });
+      if (dto.contactId) await linkContacts(tx, opportunityId, [dto.contactId]);
+      return opportunityId;
     });
     await this.touch(opportunityId);
   }

@@ -6,7 +6,7 @@ import { PrismaService } from '../prisma/prisma.service.js';
 export class ReferenceController {
   constructor(private readonly prisma: PrismaService) {}
 
-  /** { PLATFORM, CONTRACT_TYPE, CHANNEL, INTERMEDIARY_TYPE } : listes de valeurs */
+  /** { PLATFORM, CONTRACT_TYPE, CHANNEL, INTERMEDIARY_TYPE, INTERVIEW_TYPE } : listes de valeurs */
   @Get('ref-lists')
   async refLists() {
     const rows = await this.prisma.refList.findMany({
@@ -17,6 +17,7 @@ export class ReferenceController {
       CONTRACT_TYPE: [],
       CHANNEL: [],
       INTERMEDIARY_TYPE: [],
+      INTERVIEW_TYPE: [],
     };
     for (const row of rows) (lists[row.category] ??= []).push(row.value);
     return lists;
@@ -26,20 +27,6 @@ export class ReferenceController {
   companies() {
     return this.prisma.company.findMany({
       select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    });
-  }
-
-  @Get('contacts')
-  contacts() {
-    return this.prisma.contact.findMany({
-      select: {
-        id: true,
-        name: true,
-        email: true,
-        phone: true,
-        companyId: true,
-      },
       orderBy: { name: 'asc' },
     });
   }

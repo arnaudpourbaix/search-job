@@ -29,7 +29,10 @@ Tests e2e : `npm run test:e2e -w api` utilise la base Neon `neondb_test` (même 
 ```bash
 npm run import:excel -w api                       # lit recherches.xlsx à la racine
 npm run import:excel -w api -- autre.xlsx --reset # autre fichier, en vidant la base avant
+npm run import:excel -w api -- --campaign="Mission juillet 2027"  # campagne de rattachement
 ```
+
+- Les pistes importées sont rattachées à une campagne (« Mission janvier 2027 » par défaut), créée si besoin.
 
 - L'import refuse de tourner si la base contient déjà des pistes, sauf avec `--reset`.
 - Les onglets lus sont « Pistes » et « Listes » ; « Synthèse » est ignoré car tout y est calculé.

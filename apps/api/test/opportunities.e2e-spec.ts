@@ -5,15 +5,16 @@ import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
+import { stageIds } from './stages.js';
 
 type Opportunity = {
   id: number;
   reference: string | null;
-  stage: string;
+  stage: { id: number; label: string; kind: string };
   company: { name: string } | null;
   intermediary: { name: string } | null;
   intermediaryType: string | null;
-  contact: { name: string; email: string | null } | null;
+  contacts: { id: number; name: string; email: string | null }[];
   tags: string[];
   firstContactAt: string | null;
   lastContactAt: string | null;
@@ -35,6 +36,7 @@ type Opportunity = {
 
 describe('Opportunities (e2e)', () => {
   let app: INestApplication<App>;
+  let stages: Record<string, number>;
   const http = () => request(app.getHttpServer());
 
   beforeAll(async () => {
@@ -49,6 +51,11 @@ describe('Opportunities (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    // Une campagne en cours est nécessaire pour créer des pistes (201, ou 409 si déjà là).
+    await request(app.getHttpServer())
+      .post('/campaigns')
+      .send({ name: 'Campagne de test' });
+    stages = await stageIds(app);
   });
 
   afterAll(async () => {
@@ -58,13 +65,25 @@ describe('Opportunities (e2e)', () => {
   let id: number;
 
   it('crée une piste avec entreprise, intermédiaire, contact et tags', async () => {
+    const jane = (
+      (
+        await http()
+          .post('/contacts')
+          .send({
+            name: 'Jane Doe ' + Date.now(),
+            email: 'jane@acme.test',
+            companyName: 'Acme',
+          })
+          .expect(201)
+      ).body as { id: number }
+    ).id;
     const res = await http()
       .post('/opportunities')
       .send({
         companyName: 'Globex',
         intermediaryName: 'Acme',
         intermediaryType: "Apporteur d'affaires",
-        contact: { name: 'Jane Doe', email: 'jane@acme.test' },
+        contactIds: [jane, jane],
         tags: ['Angular', ' NestJS ', 'Angular'],
         tjmMin: 500,
         tjmMax: 600,
@@ -72,12 +91,14 @@ describe('Opportunities (e2e)', () => {
       .expect(201);
     const o = res.body as Opportunity;
     id = o.id;
-    expect(o.stage).toBe('TO_CONTACT');
+    expect(o.stage.label).toBe('À contacter');
     expect(o.reference).toBeNull();
     expect(o.company?.name).toBe('Globex');
     expect(o.intermediary?.name).toBe('Acme');
     expect(o.intermediaryType).toBe("Apporteur d'affaires");
-    expect(o.contact?.email).toBe('jane@acme.test');
+    expect(o.contacts).toEqual([
+      expect.objectContaining({ id: jane, email: 'jane@acme.test' }),
+    ]);
     expect(o.tags).toEqual(['Angular', 'NestJS']);
     expect(o.duplicateCompany).toBe(false);
   });
@@ -93,7 +114,7 @@ describe('Opportunities (e2e)', () => {
   it('refuse d’effacer un champ obligatoire en mise à jour (400, pas 500)', async () => {
     await http()
       .patch('/opportunities/' + id)
-      .send({ stage: null })
+      .send({ stageId: null })
       .expect(400);
     const created = (
       await http()
@@ -118,7 +139,7 @@ describe('Opportunities (e2e)', () => {
   it('valide les entrées (400)', async () => {
     await http()
       .post('/opportunities')
-      .send({ companyName: 'X', stage: 'NOPE' })
+      .send({ companyName: 'X', stageId: 'NOPE' })
       .expect(400);
     await http()
       .post('/opportunities/' + id + '/actions')
@@ -221,19 +242,19 @@ describe('Opportunities (e2e)', () => {
     const res = await http()
       .patch('/opportunities/' + id)
       .send({
-        stage: 'RECRUITER_TALK',
+        stageId: stages['Échange recruteur'],
         reference: 'REF-42',
         intermediaryName: null,
         tags: ['Java'],
-        contact: null,
+        contactIds: [],
       })
       .expect(200);
     const o = res.body as Opportunity;
-    expect(o.stage).toBe('RECRUITER_TALK');
+    expect(o.stage.label).toBe('Échange recruteur');
     expect(o.reference).toBe('REF-42');
     expect(o.intermediary).toBeNull();
     expect(o.intermediaryType).toBeNull();
-    expect(o.contact).toBeNull();
+    expect(o.contacts).toEqual([]);
     expect(o.tags).toEqual(['Java']);
     expect(o.company?.name).toBe('Globex');
   });
@@ -268,14 +289,16 @@ describe('Opportunities (e2e)', () => {
 
     await http()
       .patch('/opportunities/' + id)
-      .send({ stage: 'REJECTED' })
+      .send({ stageId: stages['Refusé'] })
       .expect(200);
     const active = (await http().get('/opportunities?active=true').expect(200))
       .body as Opportunity[];
     expect(active.map((o) => o.id)).not.toContain(id);
 
     const rejected = (
-      await http().get('/opportunities?stages=REJECTED,WON').expect(200)
+      await http()
+        .get(`/opportunities?stageIds=${stages['Refusé']},${stages['Gagné']}`)
+        .expect(200)
     ).body as Opportunity[];
     expect(rejected.map((o) => o.id)).toEqual([id]);
   });

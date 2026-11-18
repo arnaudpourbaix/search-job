@@ -1,30 +1,9 @@
-import type { Day, OpportunitySummary, Stage } from './types.ts'
+import type { Day, OpportunitySummary, Stage, StageKind } from './types.ts'
 
-export const STAGE_LABELS: Record<Stage, string> = {
-  TO_CONTACT: 'À contacter',
-  RECRUITER_TALK: 'Échange recruteur',
-  APPLICATION_SENT: 'Dossier envoyé',
-  CLIENT_INTERVIEW: 'Entretien client',
-  OFFER: 'Proposition',
-  WON: 'Gagné',
-  REJECTED: 'Refusé',
-  ABANDONED: 'Abandonné',
-}
+/** Natures d'étape qui clôturent une piste. */
+export const CLOSED_KINDS: StageKind[] = ['WON', 'LOST']
 
-export const STAGE_COLORS: Record<Stage, string> = {
-  TO_CONTACT: 'gray',
-  RECRUITER_TALK: 'blue',
-  APPLICATION_SENT: 'indigo',
-  CLIENT_INTERVIEW: 'violet',
-  OFFER: 'teal',
-  WON: 'green',
-  REJECTED: 'red',
-  ABANDONED: 'dark',
-}
-
-export const CLOSED_STAGES: Stage[] = ['WON', 'REJECTED', 'ABANDONED']
-
-export const isClosed = (stage: Stage) => CLOSED_STAGES.includes(stage)
+export const isClosed = (stage: Pick<Stage, 'kind'>) => CLOSED_KINDS.includes(stage.kind)
 
 /** Nombre de jours sans contact au-delà duquel une piste active est signalée. */
 export const STALE_DAYS = 14
@@ -96,10 +75,9 @@ function range(min: number | null, max: number | null, suffix: string): string |
 export function formatPay(
   o: Pick<OpportunitySummary, 'tjmMin' | 'tjmMax' | 'salaryMin' | 'salaryMax'>,
 ): string | null {
-  const parts = [
-    range(o.tjmMin, o.tjmMax, ' /j'),
-    range(o.salaryMin, o.salaryMax, ' /an'),
-  ].filter(Boolean)
+  const parts = [range(o.tjmMin, o.tjmMax, ' /j'), range(o.salaryMin, o.salaryMax, ' /an')].filter(
+    Boolean,
+  )
   return parts.length ? parts.join(' · ') : null
 }
 
@@ -115,3 +93,29 @@ export function opportunitySubtitle(o: Named): string | null {
   const parts = [o.intermediary ? `via ${o.intermediary.name}` : null, o.reference]
   return parts.filter(Boolean).join(' · ') || null
 }
+
+/** Fond selon l'urgence (mêmes règles que l'ancien fichier Excel). */
+export function rowBackground(o: OpportunitySummary): string | undefined {
+  if (isClosed(o.stage)) return 'var(--mantine-color-default-hover)'
+  const status = dueStatus(o.nextAction?.dueDate)
+  if (status === 'overdue') return 'var(--mantine-color-red-light)'
+  if (status === 'today') return 'var(--mantine-color-orange-light)'
+  return undefined
+}
+
+/**
+ * Numéro de téléphone mis en forme : « 01 89 53 69 77 », « +33 6 12 34 56 78 ».
+ * Un numéro qui ne ressemble pas à un numéro français est laissé tel quel.
+ */
+export function formatPhone(phone: string): string {
+  const raw = phone.trim()
+  const digits = raw.replace(/[\s.\-()/]/g, '')
+  const pairs = (s: string) => s.match(/\d{2}/g)!.join(' ')
+  if (/^0\d{9}$/.test(digits)) return pairs(digits)
+  const intl = /^(?:\+|00)33(\d{9})$/.exec(digits)
+  if (intl) return `+33 ${intl[1][0]} ${pairs(intl[1].slice(1))}`
+  return raw
+}
+
+/** Lien « tel: » d'un numéro (sans espaces ni séparateurs). */
+export const phoneHref = (phone: string) => `tel:${phone.replace(/[\s.\-()/]/g, '')}`

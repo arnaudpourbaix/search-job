@@ -1,10 +1,10 @@
 import { OmitType, PartialType } from '@nestjs/mapped-types';
 import { Transform, Type } from 'class-transformer';
+import { InterviewStatus } from '../generated/prisma/enums.js';
 import {
   ArrayMaxSize,
   IsArray,
   IsBoolean,
-  IsEmail,
   IsEnum,
   IsInt,
   IsNotEmpty,
@@ -15,12 +15,12 @@ import {
   MaxLength,
   Min,
   ValidateIf,
-  ValidateNested,
 } from 'class-validator';
-import { Stage } from '../generated/prisma/enums.js';
 
 const DAY = /^\d{4}-\d{2}-\d{2}$/;
 const DAY_MESSAGE = 'doit être au format AAAA-MM-JJ';
+const TIME = /^([01]\d|2[0-3]):[0-5]\d$/;
+const TIME_MESSAGE = "L'heure doit être au format HH:MM";
 
 /** Chaîne nettoyée ; une chaîne vide devient null (champ effacé). */
 const Trim = () =>
@@ -36,25 +36,6 @@ const Trim = () =>
  */
 const Present = <T extends object>(field: keyof T & string) =>
   ValidateIf((o: T) => o[field] !== undefined);
-
-export class ContactInput {
-  @Trim()
-  @IsString()
-  @IsNotEmpty()
-  @MaxLength(200)
-  name: string;
-
-  @Trim()
-  @IsOptional()
-  @IsEmail()
-  email?: string | null;
-
-  @Trim()
-  @IsOptional()
-  @IsString()
-  @MaxLength(50)
-  phone?: string | null;
-}
 
 export class CreateOpportunityDto {
   /** Référence de l'annonce (facultative), ex. « BPCE_INFO01289 ». */
@@ -120,9 +101,15 @@ export class CreateOpportunityDto {
   @Min(0)
   tjmMax?: number | null;
 
+  /** Étape ; par défaut, la première du pipeline. */
   @IsOptional()
-  @IsEnum(Stage)
-  stage?: Stage;
+  @IsInt()
+  stageId?: number;
+
+  /** Campagne ; par défaut, la campagne en cours la plus récente. */
+  @IsOptional()
+  @IsInt()
+  campaignId?: number;
 
   @Trim()
   @IsOptional()
@@ -157,11 +144,12 @@ export class CreateOpportunityDto {
   @MaxLength(100)
   intermediaryType?: string | null;
 
-  /** Contact (rattaché à l'intermédiaire s'il y en a un) ; null pour le retirer. */
+  /** Contacts de la piste, choisis dans le carnet (liste complète ; [] pour tous les retirer). */
   @IsOptional()
-  @ValidateNested()
-  @Type(() => ContactInput)
-  contact?: ContactInput | null;
+  @IsArray()
+  @ArrayMaxSize(50)
+  @IsInt({ each: true })
+  contactIds?: number[];
 
   @IsOptional()
   @IsArray()
@@ -172,12 +160,17 @@ export class CreateOpportunityDto {
 }
 
 export class UpdateOpportunityDto extends PartialType(
-  OmitType(CreateOpportunityDto, ['stage'] as const),
+  OmitType(CreateOpportunityDto, ['stageId', 'campaignId'] as const),
 ) {
   /** L'étape peut changer, mais pas être effacée. */
-  @Present<UpdateOpportunityDto>('stage')
-  @IsEnum(Stage)
-  stage?: Stage;
+  @Present<UpdateOpportunityDto>('stageId')
+  @IsInt()
+  stageId?: number;
+
+  /** Déplacement vers une autre campagne (pas d'effacement possible). */
+  @Present<UpdateOpportunityDto>('campaignId')
+  @IsInt()
+  campaignId?: number;
 }
 
 export class ListOpportunitiesQuery {
@@ -187,13 +180,21 @@ export class ListOpportunitiesQuery {
   @IsString()
   q?: string;
 
-  /** Étapes séparées par des virgules. */
+  /** Identifiants d'étapes séparés par des virgules. */
   @IsOptional()
   @Transform(({ value }: { value: unknown }) =>
-    typeof value === 'string' ? value.split(',').filter(Boolean) : value,
+    typeof value === 'string'
+      ? value.split(',').filter(Boolean).map(Number)
+      : value,
   )
-  @IsEnum(Stage, { each: true })
-  stages?: Stage[];
+  @IsInt({ each: true })
+  stageIds?: number[];
+
+  /** Campagne ; absent = toutes les campagnes. */
+  @IsOptional()
+  @Type(() => Number)
+  @IsInt()
+  campaignId?: number;
 
   /** true : exclut les pistes clôturées. */
   @IsOptional()
@@ -219,6 +220,11 @@ export class CreateInteractionDto {
   @IsNotEmpty()
   @MaxLength(10000)
   summary: string;
+
+  /** Interlocuteur (carnet) ; il est ajouté aux contacts de la piste. */
+  @IsOptional()
+  @IsInt()
+  contactId?: number | null;
 }
 
 export class UpdateInteractionDto {
@@ -237,6 +243,11 @@ export class UpdateInteractionDto {
   @IsString({ message: 'Le résumé ne peut pas être vide' })
   @MaxLength(10000)
   summary?: string;
+
+  /** null pour retirer l'interlocuteur. */
+  @IsOptional()
+  @IsInt()
+  contactId?: number | null;
 }
 
 export class CreateActionDto {
@@ -265,4 +276,65 @@ export class UpdateActionDto {
   @Present<UpdateActionDto>('done')
   @IsBoolean()
   done?: boolean;
+}
+
+export class CreateInterviewDto {
+  @Trim()
+  @IsString()
+  @IsNotEmpty({ message: 'Le type de tour est obligatoire' })
+  @MaxLength(100)
+  type: string;
+
+  @Trim()
+  @IsOptional()
+  @IsString()
+  @MaxLength(200)
+  label?: string | null;
+
+  @IsOptional()
+  @Matches(DAY, { message: `date ${DAY_MESSAGE}` })
+  date?: string | null;
+
+  @Trim()
+  @IsOptional()
+  @Matches(TIME, { message: TIME_MESSAGE })
+  time?: string | null;
+
+  @IsOptional()
+  @IsEnum(InterviewStatus)
+  status?: InterviewStatus;
+
+  @Trim()
+  @IsOptional()
+  @IsString()
+  @MaxLength(10000)
+  notes?: string | null;
+
+  /** Interlocuteurs (carnet), liste complète ; ils rejoignent les contacts de la piste. */
+  @IsOptional()
+  @IsArray()
+  @ArrayMaxSize(20)
+  @IsInt({ each: true })
+  contactIds?: number[];
+}
+
+export class UpdateInterviewDto extends PartialType(
+  OmitType(CreateInterviewDto, ['type', 'status']),
+) {
+  @Trim()
+  @Present<UpdateInterviewDto>('type')
+  @IsString({ message: 'Le type de tour ne peut pas être vide' })
+  @MaxLength(100)
+  type?: string;
+
+  @Present<UpdateInterviewDto>('status')
+  @IsEnum(InterviewStatus)
+  status?: InterviewStatus;
+}
+
+export class ReorderInterviewsDto {
+  @IsArray()
+  @ArrayMaxSize(100)
+  @IsInt({ each: true })
+  ids: number[];
 }

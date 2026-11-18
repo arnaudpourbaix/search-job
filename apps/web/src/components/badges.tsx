@@ -4,16 +4,14 @@ import {
   DUE_COLORS,
   dueStatus,
   formatDay,
-  STAGE_COLORS,
-  STAGE_LABELS,
   STALE_DAYS,
 } from '../format.ts'
 import type { NextAction, Stage } from '../types.ts'
 
 export function StageBadge({ stage }: { stage: Stage }) {
   return (
-    <Badge color={STAGE_COLORS[stage]} variant="light">
-      {STAGE_LABELS[stage]}
+    <Badge color={stage.color} variant="light">
+      {stage.label}
     </Badge>
   )
 }

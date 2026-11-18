@@ -6,6 +6,7 @@ import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
 import { addDays, formatDay, today } from '../src/common/dates.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
+import { stageIds } from './stages.js';
 
 type Notification = {
   id: number;
@@ -22,6 +23,7 @@ const inDays = (n: number) => formatDay(addDays(today(), n));
 describe('Notifications (e2e)', () => {
   let app: INestApplication<App>;
   let opportunityId: number;
+  let stages: Record<string, number>;
   const http = () => request(app.getHttpServer());
   /** Notifications de la piste créée par ce test (la base est partagée). */
   const feed = async () => {
@@ -48,11 +50,19 @@ describe('Notifications (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    // Une campagne en cours est nécessaire pour créer des pistes (201, ou 409 si déjà là).
+    await request(app.getHttpServer())
+      .post('/campaigns')
+      .send({ name: 'Campagne de test' });
+    stages = await stageIds(app);
 
     const o = (
       await http()
         .post('/opportunities')
-        .send({ companyName: 'Notif Corp', stage: 'RECRUITER_TALK' })
+        .send({
+          companyName: 'Notif Corp',
+          stageId: stages['Échange recruteur'],
+        })
         .expect(201)
     ).body as { id: number };
     opportunityId = o.id;
@@ -147,7 +157,7 @@ describe('Notifications (e2e)', () => {
   it('ignore les pistes clôturées', async () => {
     await http()
       .patch(`/opportunities/${opportunityId}`)
-      .send({ stage: 'REJECTED' })
+      .send({ stageId: stages['Refusé'] })
       .expect(200);
     expect(await feed()).toEqual([]);
   });

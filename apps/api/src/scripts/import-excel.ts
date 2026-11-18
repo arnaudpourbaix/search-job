@@ -1,9 +1,10 @@
 /**
  * Import de l'ancien fichier Excel de suivi dans la base.
  *
- *   npm run import:excel -w api -- [chemin.xlsx] [--reset]
+ *   npm run import:excel -w api -- [chemin.xlsx] [--reset] [--campaign=Nom]
  *
- * Par défaut lit « recherches.xlsx » à la racine du dépôt.
+ * Par défaut lit « recherches.xlsx » à la racine du dépôt. Les pistes sont
+ * rattachées à la campagne nommée (créée si besoin, « Mission janvier 2027 » par défaut).
  * Refuse de s'exécuter si la base contient déjà des pistes, sauf avec --reset
  * (qui vide toutes les tables avant l'import).
  */
@@ -18,6 +19,8 @@ import {
   normalize,
   type RawRow,
 } from '../import/excel-mapping.js';
+import { today } from '../common/dates.js';
+import { DEFAULT_STAGES, type StageCode } from '../common/stages.js';
 import { API_ROOT } from '../paths.js';
 import { createPrismaAdapter } from '../prisma/adapter.js';
 
@@ -127,6 +130,11 @@ async function main() {
   loadEnv({ path: join(API_ROOT, '.env'), quiet: true });
   const args = process.argv.slice(2);
   const reset = args.includes('--reset');
+  const campaignName =
+    args
+      .find((a) => a.startsWith('--campaign='))
+      ?.slice('--campaign='.length)
+      .trim() || 'Mission janvier 2027';
   const file = resolve(
     API_ROOT,
     args.find((a) => !a.startsWith('--')) ?? '../../recherches.xlsx',
@@ -162,7 +170,36 @@ async function main() {
         await tx.company.deleteMany();
         await tx.tag.deleteMany();
         await tx.refList.deleteMany();
+        await tx.campaign.deleteMany();
+        await tx.pipelineStage.deleteMany();
       }
+
+      // Étapes d'origine : créées si absentes (base vide ou --reset), sans écraser
+      // celles qui existent. Les codes de l'Excel pointent vers elles par libellé.
+      const stageIds = new Map<StageCode, number>();
+      for (const [order, stage] of DEFAULT_STAGES.entries()) {
+        const { id } = await tx.pipelineStage.upsert({
+          where: { label: stage.label },
+          create: {
+            label: stage.label,
+            color: stage.color,
+            kind: stage.kind,
+            order,
+          },
+          update: {},
+        });
+        stageIds.set(stage.code, id);
+      }
+
+      // Campagne démarrée au plus ancien échange importé.
+      const firstContact = opportunities
+        .flatMap((o) => o.interactions.map((i) => i.date))
+        .reduce<Date | null>((min, d) => (!min || d < min ? d : min), null);
+      const campaign = await tx.campaign.upsert({
+        where: { name: campaignName },
+        create: { name: campaignName, startDate: firstContact ?? today() },
+        update: {},
+      });
 
       // Types d'intermédiaire : absents de l'Excel, valeurs par défaut.
       const intermediaryTypes = INTERMEDIARY_TYPES.map((value, order) => ({
@@ -223,13 +260,14 @@ async function main() {
             salaryMax: o.salaryMax,
             tjmMin: o.tjmMin,
             tjmMax: o.tjmMax,
-            stage: o.stage,
+            stageId: stageIds.get(o.stage)!,
             url: o.url,
             notes: o.notes,
+            campaignId: campaign.id,
             companyId: companyIdValue,
             intermediaryId: intermediaryIdValue,
             intermediaryType: o.intermediaryType,
-            contactId,
+            contacts: contactId ? { create: { contactId } } : undefined,
             tags: {
               connectOrCreate: o.tags.map((name) => ({
                 where: { name },
@@ -252,6 +290,8 @@ async function main() {
     });
 
     const counts = {
+      campagnes: await prisma.campaign.count(),
+      étapes: await prisma.pipelineStage.count(),
       pistes: await prisma.opportunity.count(),
       sociétés: await prisma.company.count(),
       contacts: await prisma.contact.count(),

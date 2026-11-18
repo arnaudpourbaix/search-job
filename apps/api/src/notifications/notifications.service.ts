@@ -2,7 +2,12 @@ import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { NotificationType } from '../generated/prisma/enums.js';
 import { addDays, formatDay, today } from '../common/dates.js';
-import { CLOSED_STAGES } from '../opportunities/opportunities.service.js';
+import {
+  heldInterviewWhere,
+  lastHeldInterviewSelect,
+  latestDate,
+} from '../common/interviews.js';
+import { openStageFilter, stageRef } from '../common/stages.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
 /** Piste active sans échange depuis ce nombre de jours : à relancer. */
@@ -37,7 +42,11 @@ export class NotificationsService {
     const day = today(now);
     const horizon = addDays(day, UPCOMING_DAYS);
     const staleBefore = addDays(day, -STALE_DAYS);
-    const active = { stage: { notIn: CLOSED_STAGES } };
+    // Pistes non clôturées des campagnes en cours.
+    const active = {
+      ...openStageFilter,
+      campaign: { endDate: null },
+    };
 
     const [actions, opportunities] = await Promise.all([
       this.prisma.action.findMany({
@@ -49,7 +58,13 @@ export class NotificationsService {
         select: { id: true, label: true, dueDate: true, opportunityId: true },
       }),
       this.prisma.opportunity.findMany({
-        where: { ...active, interactions: { some: {} } },
+        where: {
+          ...active,
+          OR: [
+            { interactions: { some: {} } },
+            { interviews: { some: heldInterviewWhere } },
+          ],
+        },
         select: {
           id: true,
           interactions: {
@@ -57,6 +72,7 @@ export class NotificationsService {
             orderBy: { date: 'desc' },
             take: 1,
           },
+          interviews: lastHeldInterviewSelect,
         },
       }),
     ]);
@@ -79,7 +95,8 @@ export class NotificationsService {
     });
 
     for (const o of opportunities) {
-      const last = o.interactions[0].date;
+      // Dernier contact : échange du journal ou entretien ayant eu lieu.
+      const last = latestDate(o.interactions, o.interviews)!;
       if (last >= staleBefore) continue;
       const days = Math.round((day.getTime() - last.getTime()) / 86_400_000);
       alerts.push({
@@ -141,7 +158,7 @@ export class NotificationsService {
             id: true,
             reference: true,
             title: true,
-            stage: true,
+            stage: stageRef,
             company: companyRef,
             intermediary: companyRef,
           },

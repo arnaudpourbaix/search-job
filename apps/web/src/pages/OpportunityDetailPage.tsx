@@ -18,6 +18,7 @@ import {
   Text,
   Textarea,
   TextInput,
+  ThemeIcon,
   Timeline,
   Title,
 } from '@mantine/core'
@@ -31,26 +32,21 @@ import {
   IconCheck,
   IconDots,
   IconExternalLink,
-  IconMail,
   IconMessage,
   IconPencil,
-  IconPhone,
   IconPlus,
   IconTrash,
 } from '@tabler/icons-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
 import { DueBadge, DuplicateCompanyIcon, StaleIcon } from '../components/badges.tsx'
+import { ContactLines } from '../components/ContactLines.tsx'
+import { ContactNames } from '../components/ContactNames.tsx'
+import { ContactSelect } from '../components/ContactPicker.tsx'
+import { InterviewsCard } from '../components/InterviewsCard.tsx'
 import { OpportunityModal } from '../components/OpportunityModal.tsx'
-import {
-  formatDay,
-  formatPay,
-  isStale,
-  opportunityName,
-  STAGE_COLORS,
-  STAGE_LABELS,
-  today,
-} from '../format.ts'
+import { ROUND_STATE_INFO, roundState, roundTitle } from '../interviews.ts'
+import { formatDay, formatPay, isStale, opportunityName, today } from '../format.ts'
 import {
   useDeleteOpportunity,
   useJournal,
@@ -58,7 +54,9 @@ import {
   useRefLists,
   useUpdateOpportunity,
 } from '../queries.ts'
-import { STAGES, type Interaction, type OpportunityDetail, type Stage } from '../types.ts'
+import { useStages } from '../settings.ts'
+import type { InteractionInput } from '../queries.ts'
+import type { Interaction, InterviewRound, OpportunityDetail } from '../types.ts'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -94,39 +92,22 @@ function InfoCard({ o }: { o: OpportunityDetail }) {
             ? [o.intermediary.name, o.intermediaryType].filter(Boolean).join(' · ')
             : 'Aucun (en direct)'}
         </Field>
-        <Field label="Contact">
-          {o.contact && (
-            <Stack gap={2}>
-              <span>{o.contact.name}</span>
-              {o.contact.email && (
-                <Anchor href={`mailto:${o.contact.email}`} size="sm">
-                  <Group gap={4} wrap="nowrap">
-                    <IconMail size={14} />
-                    {o.contact.email}
-                  </Group>
-                </Anchor>
-              )}
-              {o.contact.phone && (
-                <Anchor href={`tel:${o.contact.phone.replace(/\s/g, '')}`} size="sm">
-                  <Group gap={4} wrap="nowrap">
-                    <IconPhone size={14} />
-                    {o.contact.phone}
-                  </Group>
-                </Anchor>
-              )}
-            </Stack>
-          )}
+        <Box style={{ gridColumn: '1 / -1' }}>
+          <Field label={o.contacts.length > 1 ? 'Contacts' : 'Contact'}>
+            {o.contacts.length > 0 && <ContactLines contacts={o.contacts} />}
+          </Field>
+        </Box>
+        <Field label="Campagne">
+          {o.campaign.endDate
+            ? `${o.campaign.name} (terminée le ${formatDay(o.campaign.endDate)})`
+            : o.campaign.name}
         </Field>
         <Field label="Contrat · plateforme">
           {[o.contractType, o.platform].filter(Boolean).join(' · ') || null}
         </Field>
         <Field label="Rémunération">{formatPay(o)}</Field>
         <Field label="Lieu · télétravail · durée">
-          {[
-            o.location,
-            o.remoteDays !== null ? `${o.remoteDays} j/sem` : null,
-            o.duration,
-          ]
+          {[o.location, o.remoteDays !== null ? `${o.remoteDays} j/sem` : null, o.duration]
             .filter(Boolean)
             .join(' · ') || null}
         </Field>
@@ -190,11 +171,13 @@ function ActionsCard({ o }: { o: OpportunityDetail }) {
           <Group key={a.id} justify="space-between" wrap="nowrap" gap="xs">
             <Checkbox
               checked={a.doneAt !== null}
-              onChange={(e) =>
-                updateAction.mutate({ id: a.id, done: e.currentTarget.checked })
-              }
+              onChange={(e) => updateAction.mutate({ id: a.id, done: e.currentTarget.checked })}
               label={
-                <Text size="sm" td={a.doneAt ? 'line-through' : undefined} c={a.doneAt ? 'dimmed' : undefined}>
+                <Text
+                  size="sm"
+                  td={a.doneAt ? 'line-through' : undefined}
+                  c={a.doneAt ? 'dimmed' : undefined}
+                >
                   {a.label}
                 </Text>
               }
@@ -236,7 +219,12 @@ function ActionsCard({ o }: { o: OpportunityDetail }) {
             style={{ flex: '0 1 150px' }}
             {...form.getInputProps('dueDate')}
           />
-          <ActionIcon type="submit" size="lg" aria-label="Ajouter l'action" loading={addAction.isPending}>
+          <ActionIcon
+            type="submit"
+            size="lg"
+            aria-label="Ajouter l'action"
+            loading={addAction.isPending}
+          >
             <IconPlus size={18} />
           </ActionIcon>
         </Group>
@@ -245,23 +233,27 @@ function ActionsCard({ o }: { o: OpportunityDetail }) {
   )
 }
 
-type InteractionValues = { date: string | null; channel: string | null; summary: string }
+type InteractionValues = {
+  date: string | null
+  channel: string | null
+  summary: string
+  contactId: number | null
+}
 
 /** Formulaire d'échange, pour l'ajout comme pour la modification. */
 function InteractionForm({
+  o,
   initial,
   submitLabel,
   loading,
-  resetOnSuccess,
   onSubmit,
   onCancel,
 }: {
+  o: OpportunityDetail
   initial: InteractionValues
   submitLabel: string
   loading: boolean
-  /** Vide le résumé après un ajout réussi. */
-  resetOnSuccess?: boolean
-  onSubmit: (v: Interaction, done: () => void) => void
+  onSubmit: (v: InteractionInput) => void
   onCancel?: () => void
 }) {
   const { data: lists } = useRefLists()
@@ -276,10 +268,12 @@ function InteractionForm({
   return (
     <form
       onSubmit={form.onSubmit((v) =>
-        onSubmit(
-          { id: 0, date: v.date!, channel: v.channel, summary: v.summary.trim() },
-          () => resetOnSuccess && form.setFieldValue('summary', ''),
-        ),
+        onSubmit({
+          date: v.date!,
+          channel: v.channel,
+          summary: v.summary.trim(),
+          contactId: v.contactId,
+        }),
       )}
     >
       <Stack gap="xs">
@@ -299,6 +293,12 @@ function InteractionForm({
             {...form.getInputProps('channel')}
           />
         </Group>
+        <ContactSelect
+          value={form.values.contactId}
+          onChange={(id) => form.setFieldValue('contactId', id)}
+          opportunityContacts={o.contacts}
+          defaultCompany={o.intermediary?.name ?? o.company?.name ?? null}
+        />
         <Textarea
           placeholder="Résumé de l'échange"
           aria-label="Résumé de l'échange"
@@ -313,12 +313,7 @@ function InteractionForm({
               Annuler
             </Button>
           )}
-          <Button
-            type="submit"
-            size="xs"
-            leftSection={onCancel ? <IconCheck size={14} /> : <IconPlus size={14} />}
-            loading={loading}
-          >
+          <Button type="submit" size="xs" leftSection={<IconCheck size={14} />} loading={loading}>
             {submitLabel}
           </Button>
         </Group>
@@ -327,17 +322,85 @@ function InteractionForm({
   )
 }
 
+/** Montre un tour dans la carte « Processus de recrutement » (défilement + surbrillance). */
+function showRound(id: number) {
+  const el = document.getElementById(`round-${id}`)
+  if (!el) return
+  el.scrollIntoView({ behavior: 'smooth', block: 'center' })
+  el.animate(
+    [{ backgroundColor: 'var(--mantine-color-yellow-light)' }, { backgroundColor: 'transparent' }],
+    { duration: 1600, easing: 'ease-out' },
+  )
+}
+
+/** Entretien ayant eu lieu, affiché dans l'historique (lecture seule). */
+function RoundEntry({ r }: { r: InterviewRound & { date: string } }) {
+  const info = ROUND_STATE_INFO[roundState(r)]
+  return (
+    <>
+      <Group justify="space-between" wrap="nowrap" gap="xs" align="flex-start">
+        <Text size="sm" fw={500}>
+          {formatDay(r.date)}
+          <Text span c="dimmed" size="sm">
+            {' · '}
+            {r.time ? `${r.time} · ` : ''}entretien
+          </Text>
+        </Text>
+        <Badge color={info.color} variant="light" style={{ flexShrink: 0 }}>
+          {info.label}
+        </Badge>
+      </Group>
+      <Anchor
+        component="button"
+        type="button"
+        size="sm"
+        fw={600}
+        ta="left"
+        onClick={() => showRound(r.id)}
+        title="Voir dans le processus de recrutement"
+      >
+        {roundTitle(r)}
+      </Anchor>
+      <ContactNames contacts={r.contacts} />
+      {r.notes && (
+        <Text size="sm" c="dimmed" lineClamp={4} style={{ whiteSpace: 'pre-wrap' }}>
+          {r.notes}
+        </Text>
+      )}
+    </>
+  )
+}
+
 function JournalCard({ o }: { o: OpportunityDetail }) {
   const { addInteraction, updateInteraction, removeInteraction } = useJournal(o.id)
-  const [editingId, setEditingId] = useState<number | null>(null)
+  // Échange en cours de modification, ou 'new' pour la saisie d'un nouvel échange.
+  const [editingId, setEditingId] = useState<number | 'new' | null>(null)
+
+  // Échanges du journal et entretiens ayant eu lieu, du plus récent au plus ancien
+  // (à date égale, l'entretien d'abord).
+  const history = [
+    ...o.interviews
+      .filter((r): r is InterviewRound & { date: string } => r.status !== 'PLANNED' && !!r.date)
+      .map((round) => ({ date: round.date, round, interaction: null })),
+    ...o.interactions.map((interaction) => ({
+      date: interaction.date,
+      round: null,
+      interaction,
+    })),
+  ].sort((a, b) => b.date.localeCompare(a.date) || (a.round ? -1 : b.round ? 1 : 0)) as (
+    | {
+        date: string
+        round: InterviewRound & { date: string }
+        interaction: null
+      }
+    | { date: string; round: null; interaction: Interaction }
+  )[]
 
   const confirmRemove = (i: Interaction) =>
     modals.openConfirmModal({
       title: "Supprimer l'échange ?",
       children: (
-        <Text size="sm">
-          L'échange du {formatDay(i.date)} sera supprimé définitivement.
-        </Text>
+        <Text size="sm">L'échange du {formatDay(i.date)} sera supprimé définitivement.</Text>
       ),
       labels: { confirm: 'Supprimer', cancel: 'Annuler' },
       confirmProps: { color: 'red' },
@@ -346,93 +409,144 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
 
   return (
     <Card withBorder>
-      <Title order={4} mb="sm">
-        Journal
-      </Title>
+      <Group justify="space-between" mb={4} gap="xs" align="flex-start">
+        <Title order={4}>Échanges et historique</Title>
+        {editingId !== 'new' && (
+          <Button
+            size="xs"
+            variant="light"
+            leftSection={<IconPlus size={14} />}
+            onClick={() => setEditingId('new')}
+          >
+            Ajouter un échange
+          </Button>
+        )}
+      </Group>
+      <Text size="sm" c="dimmed" mb="sm">
+        Relances, mails, appels… Les entretiens passés s'ajoutent d'eux-mêmes depuis le processus.
+      </Text>
 
-      <Box mb="lg">
-        <InteractionForm
-          initial={{ date: today(), channel: null, summary: '' }}
-          submitLabel="Ajouter l'échange"
-          loading={addInteraction.isPending}
-          resetOnSuccess
-          onSubmit={({ date, channel, summary }, done) =>
-            addInteraction.mutate({ date, channel, summary }, { onSuccess: done })
-          }
-        />
-      </Box>
+      {editingId === 'new' && (
+        <Card withBorder mb="lg" padding="sm" bg="var(--mantine-color-default-hover)">
+          <Text size="sm" fw={600} mb="xs">
+            Nouvel échange
+          </Text>
+          <InteractionForm
+            o={o}
+            initial={{
+              date: today(),
+              channel: null,
+              summary: '',
+              // Un seul contact sur la piste : proposé par défaut.
+              contactId: o.contacts.length === 1 ? o.contacts[0].id : null,
+            }}
+            submitLabel="Ajouter"
+            loading={addInteraction.isPending}
+            onCancel={() => setEditingId(null)}
+            onSubmit={(v) => addInteraction.mutate(v, { onSuccess: () => setEditingId(null) })}
+          />
+        </Card>
+      )}
 
-      {o.interactions.length === 0 ? (
-        <Text size="sm" c="dimmed">
-          Aucun échange.
-        </Text>
+      {history.length === 0 ? (
+        editingId !== 'new' && (
+          <Text size="sm" c="dimmed">
+            Aucun échange pour l'instant.
+          </Text>
+        )
       ) : (
         <Timeline bulletSize={22} lineWidth={2}>
-          {o.interactions.map((i) => (
-            <Timeline.Item
-              key={i.id}
-              bullet={<IconMessage size={12} />}
-              title={
-                editingId === i.id ? undefined : (
-                  <Group justify="space-between" wrap="nowrap">
-                    <Text size="sm" fw={500}>
-                      {formatDay(i.date)}
-                      {i.channel && (
-                        <Text span c="dimmed" size="sm">
-                          {' · '}
-                          {i.channel}
-                        </Text>
-                      )}
-                    </Text>
-                    <Group gap={2} wrap="nowrap">
-                      <ActionIcon
-                        variant="subtle"
-                        color="gray"
-                        size="sm"
-                        aria-label="Modifier l'échange"
-                        onClick={() => setEditingId(i.id)}
-                      >
-                        <IconPencil size={14} />
-                      </ActionIcon>
-                      <ActionIcon
-                        variant="subtle"
-                        color="gray"
-                        size="sm"
-                        aria-label="Supprimer l'échange"
-                        onClick={() => confirmRemove(i)}
-                      >
-                        <IconTrash size={14} />
-                      </ActionIcon>
-                    </Group>
-                  </Group>
-                )
-              }
-            >
-              {editingId === i.id ? (
-                <InteractionForm
-                  initial={{ date: i.date, channel: i.channel, summary: i.summary }}
-                  submitLabel="Enregistrer"
-                  loading={updateInteraction.isPending}
-                  onCancel={() => setEditingId(null)}
-                  onSubmit={({ date, channel, summary }) =>
-                    updateInteraction.mutate(
-                      { id: i.id, date, channel, summary },
-                      { onSuccess: () => setEditingId(null) },
-                    )
+          {history.map(({ interaction: i, round }) => {
+            if (round) {
+              const info = ROUND_STATE_INFO[roundState(round)]
+              const RoundIcon = info.icon
+              return (
+                <Timeline.Item
+                  key={`round-${round.id}`}
+                  bullet={
+                    <ThemeIcon size={22} radius="xl" color={info.color}>
+                      <RoundIcon size={12} />
+                    </ThemeIcon>
                   }
+                  title={<RoundEntry r={round} />}
                 />
-              ) : (
-                <Text
-                  size="sm"
-                  style={{ whiteSpace: 'pre-wrap', cursor: 'text' }}
-                  title="Double-clic pour modifier"
-                  onDoubleClick={() => setEditingId(i.id)}
-                >
-                  {i.summary}
-                </Text>
-              )}
-            </Timeline.Item>
-          ))}
+              )
+            }
+            return (
+              <Timeline.Item
+                key={i.id}
+                bullet={<IconMessage size={12} />}
+                title={
+                  editingId === i.id ? undefined : (
+                    <Group justify="space-between" wrap="nowrap">
+                      <Text size="sm" fw={500}>
+                        {formatDay(i.date)}
+                        {i.channel && (
+                          <Text span c="dimmed" size="sm">
+                            {' · '}
+                            {i.channel}
+                          </Text>
+                        )}
+                      </Text>
+                      <Group gap={2} wrap="nowrap">
+                        <ActionIcon
+                          variant="subtle"
+                          color="gray"
+                          size="sm"
+                          aria-label="Modifier l'échange"
+                          onClick={() => setEditingId(i.id)}
+                        >
+                          <IconPencil size={14} />
+                        </ActionIcon>
+                        <ActionIcon
+                          variant="subtle"
+                          color="gray"
+                          size="sm"
+                          aria-label="Supprimer l'échange"
+                          onClick={() => confirmRemove(i)}
+                        >
+                          <IconTrash size={14} />
+                        </ActionIcon>
+                      </Group>
+                    </Group>
+                  )
+                }
+              >
+                {editingId === i.id ? (
+                  <InteractionForm
+                    o={o}
+                    initial={{
+                      date: i.date,
+                      channel: i.channel,
+                      summary: i.summary,
+                      contactId: i.contact?.id ?? null,
+                    }}
+                    submitLabel="Enregistrer"
+                    loading={updateInteraction.isPending}
+                    onCancel={() => setEditingId(null)}
+                    onSubmit={(v) =>
+                      updateInteraction.mutate(
+                        { id: i.id, ...v },
+                        { onSuccess: () => setEditingId(null) },
+                      )
+                    }
+                  />
+                ) : (
+                  <>
+                    {i.contact && <ContactNames contacts={[i.contact]} />}
+                    <Text
+                      size="sm"
+                      style={{ whiteSpace: 'pre-wrap', cursor: 'text' }}
+                      title="Double-clic pour modifier"
+                      onDoubleClick={() => setEditingId(i.id)}
+                    >
+                      {i.summary}
+                    </Text>
+                  </>
+                )}
+              </Timeline.Item>
+            )
+          })}
         </Timeline>
       )}
     </Card>
@@ -446,6 +560,12 @@ export function OpportunityDetailPage() {
   const update = useUpdateOpportunity(id)
   const remove = useDeleteOpportunity()
   const [editing, { open, close }] = useDisclosure()
+  const { data: stages = [] } = useStages()
+  const stageOptions = stages.map((s) => ({
+    value: String(s.id),
+    label: s.label,
+  }))
+  const changeStage = (value: string | null) => value && update.mutate({ stageId: Number(value) })
 
   if (isPending) {
     return (
@@ -462,13 +582,16 @@ export function OpportunityDetailPage() {
     )
   }
 
+  // Processus en tête dès qu'il a commencé (ou que la piste est à une étape avancée).
+  const interviewsFirst = o.interviews.length > 0 || o.stage.kind === 'ADVANCED'
+
   const confirmDelete = () =>
     modals.openConfirmModal({
       title: 'Supprimer la piste ?',
       children: (
         <Text size="sm">
-          La piste « {opportunityName(o)} » sera supprimée avec son journal et ses actions. Cette action est
-          définitive.
+          La piste « {opportunityName(o)} » sera supprimée avec son journal et ses actions. Cette
+          action est définitive.
         </Text>
       ),
       labels: { confirm: 'Supprimer', cancel: 'Annuler' },
@@ -505,13 +628,18 @@ export function OpportunityDetailPage() {
         <Group gap="xs" wrap="nowrap">
           <Select
             aria-label="Étape"
-            data={STAGES.map((s) => ({ value: s, label: STAGE_LABELS[s] }))}
-            value={o.stage}
+            data={stageOptions}
+            value={String(o.stage.id)}
             allowDeselect={false}
-            onChange={(stage) => stage && update.mutate({ stage: stage as Stage })}
+            onChange={changeStage}
             w={180}
             visibleFrom="xs"
-            styles={{ input: { color: `var(--mantine-color-${STAGE_COLORS[o.stage]}-text)`, fontWeight: 600 } }}
+            styles={{
+              input: {
+                color: `var(--mantine-color-${o.stage.color}-text)`,
+                fontWeight: 600,
+              },
+            }}
           />
           <Button
             variant="default"
@@ -543,17 +671,19 @@ export function OpportunityDetailPage() {
       <Select
         hiddenFrom="xs"
         aria-label="Étape"
-        data={STAGES.map((s) => ({ value: s, label: STAGE_LABELS[s] }))}
-        value={o.stage}
+        data={stageOptions}
+        value={String(o.stage.id)}
         allowDeselect={false}
-        onChange={(stage) => stage && update.mutate({ stage: stage as Stage })}
+        onChange={changeStage}
       />
 
       <Grid>
         <Grid.Col span={{ base: 12, md: 7 }}>
           <Stack>
+            {interviewsFirst && <InterviewsCard o={o} />}
             <InfoCard o={o} />
             <ActionsCard o={o} />
+            {!interviewsFirst && <InterviewsCard o={o} />}
           </Stack>
         </Grid.Col>
         <Grid.Col span={{ base: 12, md: 5 }}>

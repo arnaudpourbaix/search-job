@@ -1,4 +1,3 @@
-import { Stage } from '../generated/prisma/enums.js';
 import {
   mapRow,
   parseStack,
@@ -39,11 +38,11 @@ function row(overrides: Partial<RawRow> = {}): RawRow {
 
 describe('parseStage', () => {
   it('ignore accents et casse', () => {
-    expect(parseStage('Échange recruteur')).toBe(Stage.RECRUITER_TALK);
-    expect(parseStage('refusé')).toBe(Stage.REJECTED);
+    expect(parseStage('Échange recruteur')).toBe('RECRUITER_TALK');
+    expect(parseStage('refusé')).toBe('REJECTED');
   });
   it('vaut « À contacter » si vide', () => {
-    expect(parseStage(null)).toBe(Stage.TO_CONTACT);
+    expect(parseStage(null)).toBe('TO_CONTACT');
   });
   it('rejette une étape inconnue', () => {
     expect(() => parseStage('Signé')).toThrow('Étape inconnue');

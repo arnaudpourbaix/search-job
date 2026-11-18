@@ -36,6 +36,7 @@ import {
   type EditableList,
   type ListItem,
 } from '../settings.ts'
+import { StagesCard } from '../components/StagesCard.tsx'
 
 const sameValue = (a: string, b: string) =>
   a.localeCompare(b, 'fr', { sensitivity: 'base' }) === 0
@@ -311,10 +312,12 @@ export function SettingsPage() {
       <div>
         <Title order={2}>Paramètres</Title>
         <Text c="dimmed">
-          Listes proposées dans les formulaires. Un renommage est répercuté sur les pistes
-          et le journal.
+          Étapes du pipeline et listes proposées dans les formulaires. Un renommage est
+          répercuté sur les pistes et le journal.
         </Text>
       </div>
+
+      <StagesCard />
 
       {isPending ? (
         <Center p="xl">
