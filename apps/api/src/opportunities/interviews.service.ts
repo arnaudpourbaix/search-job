@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { assertContacts, linkContacts } from '../common/contacts.js';
 import { parseDay } from '../common/dates.js';
+import { assertOpportunity } from '../common/ownership.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type { CreateInterviewDto, UpdateInterviewDto } from './dto.js';
 
@@ -24,16 +25,21 @@ export class InterviewsService {
     });
   }
 
-  /** Ajoute un tour à la fin du processus. */
-  async add(opportunityId: number, dto: CreateInterviewDto) {
-    const exists = await this.prisma.opportunity.count({
-      where: { id: opportunityId },
+  /** Piste d'un tour de l'utilisateur, sinon 404. */
+  private async owner(userId: number, id: number) {
+    const found = await this.prisma.interview.findFirst({
+      where: { id, opportunity: { userId } },
+      select: { opportunityId: true },
     });
-    if (!exists) {
-      throw new NotFoundException(`Piste ${opportunityId} introuvable`);
-    }
+    if (!found) throw new NotFoundException(`Entretien ${id} introuvable`);
+    return found.opportunityId;
+  }
+
+  /** Ajoute un tour à la fin du processus. */
+  async add(userId: number, opportunityId: number, dto: CreateInterviewDto) {
+    await assertOpportunity(this.prisma, userId, opportunityId);
     await this.prisma.$transaction(async (tx) => {
-      const contactIds = await assertContacts(tx, dto.contactIds ?? []);
+      const contactIds = await assertContacts(tx, userId, dto.contactIds ?? []);
       const last = await tx.interview.aggregate({
         where: { opportunityId },
         _max: { order: true },
@@ -57,11 +63,12 @@ export class InterviewsService {
     await this.touch(opportunityId);
   }
 
-  async update(id: number, dto: UpdateInterviewDto) {
-    const opportunityId = await this.prisma.$transaction(async (tx) => {
+  async update(userId: number, id: number, dto: UpdateInterviewDto) {
+    const opportunityId = await this.owner(userId, id);
+    await this.prisma.$transaction(async (tx) => {
       const contactIds =
-        dto.contactIds && (await assertContacts(tx, dto.contactIds));
-      const { opportunityId } = await tx.interview.update({
+        dto.contactIds && (await assertContacts(tx, userId, dto.contactIds));
+      await tx.interview.update({
         where: { id },
         data: {
           type: dto.type,
@@ -81,20 +88,19 @@ export class InterviewsService {
         },
       });
       if (contactIds) await linkContacts(tx, opportunityId, contactIds);
-      return opportunityId;
     });
     await this.touch(opportunityId);
   }
 
-  async remove(id: number) {
-    const { opportunityId } = await this.prisma.interview.delete({
-      where: { id },
-    });
+  async remove(userId: number, id: number) {
+    const opportunityId = await this.owner(userId, id);
+    await this.prisma.interview.delete({ where: { id } });
     await this.touch(opportunityId);
   }
 
   /** Nouvel ordre : la liste complète des tours de la piste. */
-  async reorder(opportunityId: number, ids: number[]) {
+  async reorder(userId: number, opportunityId: number, ids: number[]) {
+    await assertOpportunity(this.prisma, userId, opportunityId);
     await this.prisma.$transaction(async (tx) => {
       const current = await tx.interview.findMany({
         where: { opportunityId },

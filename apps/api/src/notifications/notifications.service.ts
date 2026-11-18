@@ -38,12 +38,13 @@ export class NotificationsService {
    * alerte lue reste lue tant que la situation ne change pas, et une nouvelle
    * alerte apparaît si l'échéance est déplacée ou si la piste repasse en retard.
    */
-  async compute(now = new Date()): Promise<Alert[]> {
+  async compute(userId?: number, now = new Date()): Promise<Alert[]> {
     const day = today(now);
     const horizon = addDays(day, UPCOMING_DAYS);
     const staleBefore = addDays(day, -STALE_DAYS);
-    // Pistes non clôturées des campagnes en cours.
+    // Pistes non clôturées des campagnes en cours (d'un utilisateur, ou de tous).
     const active = {
+      ...(userId === undefined ? {} : { userId }),
       ...openStageFilter,
       campaign: { endDate: null },
     };
@@ -115,8 +116,8 @@ export class NotificationsService {
    * l'état « lu » des existantes) et supprime celles qui ne sont plus d'actualité
    * (action faite ou déplacée, piste clôturée ou relancée).
    */
-  async refresh(now = new Date()) {
-    const alerts = await this.compute(now);
+  async refresh(userId?: number, now = new Date()) {
+    const alerts = await this.compute(userId, now);
     const keys = alerts.map((a) => a.dedupeKey);
     // Les messages évoluent (« depuis 15 jours » → « 16 jours »), d'où l'update.
     const stale = alerts.filter(
@@ -124,7 +125,10 @@ export class NotificationsService {
     );
     await this.prisma.$transaction([
       this.prisma.notification.deleteMany({
-        where: { dedupeKey: { notIn: keys } },
+        where: {
+          dedupeKey: { notIn: keys },
+          ...(userId === undefined ? {} : { opportunity: { userId } }),
+        },
       }),
       this.prisma.notification.createMany({
         data: alerts,
@@ -149,9 +153,10 @@ export class NotificationsService {
     }
   }
 
-  async list() {
-    await this.refresh();
+  async list(userId: number) {
+    await this.refresh(userId);
     const items = await this.prisma.notification.findMany({
+      where: { opportunity: { userId } },
       include: {
         opportunity: {
           select: {
@@ -199,17 +204,17 @@ export class NotificationsService {
     };
   }
 
-  async markRead(id: number, read: boolean) {
+  async markRead(userId: number, id: number, read: boolean) {
     const { count } = await this.prisma.notification.updateMany({
-      where: { id },
+      where: { id, opportunity: { userId } },
       data: { readAt: read ? new Date() : null },
     });
     if (!count) throw new NotFoundException(`Notification ${id} introuvable`);
   }
 
-  async markAllRead() {
+  async markAllRead(userId: number) {
     await this.prisma.notification.updateMany({
-      where: { readAt: null },
+      where: { readAt: null, opportunity: { userId } },
       data: { readAt: new Date() },
     });
   }

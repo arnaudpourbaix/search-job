@@ -4,6 +4,7 @@ import { ScheduleModule } from '@nestjs/schedule';
 import { join } from 'node:path';
 import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
+import { AuthModule } from './auth/auth.module.js';
 import { CampaignsModule } from './campaigns/campaigns.module.js';
 import { ContactsModule } from './contacts/contacts.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
@@ -21,6 +22,7 @@ import { SettingsModule } from './settings/settings.module.js';
       envFilePath: join(API_ROOT, '.env'),
     }),
     PrismaModule,
+    AuthModule,
     OpportunitiesModule,
     ReferenceModule,
     SettingsModule,

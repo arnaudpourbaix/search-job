@@ -23,6 +23,7 @@ import {
   UpdateInterviewDto,
   UpdateOpportunityDto,
 } from './dto.js';
+import { UserId } from '../auth/auth.decorators.js';
 import { InterviewsService } from './interviews.service.js';
 import { JournalService } from './journal.service.js';
 import { OpportunitiesService } from './opportunities.service.js';
@@ -36,71 +37,76 @@ export class OpportunitiesController {
   ) {}
 
   @Get()
-  list(@Query() query: ListOpportunitiesQuery) {
-    return this.opportunities.list(query);
+  list(@UserId() userId: number, @Query() query: ListOpportunitiesQuery) {
+    return this.opportunities.list(userId, query);
   }
 
   @Get(':id')
-  get(@Param('id', ParseIntPipe) id: number) {
-    return this.opportunities.get(id);
+  get(@UserId() userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.opportunities.get(userId, id);
   }
 
   @Post()
-  create(@Body() dto: CreateOpportunityDto) {
-    return this.opportunities.create(dto);
+  create(@UserId() userId: number, @Body() dto: CreateOpportunityDto) {
+    return this.opportunities.create(userId, dto);
   }
 
   @Patch(':id')
   update(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateOpportunityDto,
   ) {
-    return this.opportunities.update(id, dto);
+    return this.opportunities.update(userId, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.opportunities.remove(id);
+  remove(@UserId() userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.opportunities.remove(userId, id);
   }
 
   /** Ajoute un échange au journal et renvoie la piste à jour. */
   @Post(':id/interactions')
   async addInteraction(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateInteractionDto,
   ) {
-    await this.journal.addInteraction(id, dto);
-    return this.opportunities.get(id);
+    await this.journal.addInteraction(userId, id, dto);
+    return this.opportunities.get(userId, id);
   }
 
   /** Ajoute une action et renvoie la piste à jour. */
   @Post(':id/actions')
   async addAction(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateActionDto,
   ) {
-    await this.journal.addAction(id, dto);
-    return this.opportunities.get(id);
+    await this.journal.addAction(userId, id, dto);
+    return this.opportunities.get(userId, id);
   }
 
   /** Ajoute un tour au processus de recrutement et renvoie la piste à jour. */
   @Post(':id/interviews')
   async addInterview(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: CreateInterviewDto,
   ) {
-    await this.interviews.add(id, dto);
-    return this.opportunities.get(id);
+    await this.interviews.add(userId, id, dto);
+    return this.opportunities.get(userId, id);
   }
 
   @Put(':id/interviews/order')
   @HttpCode(204)
   reorderInterviews(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() { ids }: ReorderInterviewsDto,
   ) {
-    return this.interviews.reorder(id, ids);
+    return this.interviews.reorder(userId, id, ids);
   }
 }
 
@@ -111,16 +117,17 @@ export class InterviewsController {
   @Patch(':id')
   @HttpCode(204)
   update(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateInterviewDto,
   ) {
-    return this.interviews.update(id, dto);
+    return this.interviews.update(userId, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.interviews.remove(id);
+  remove(@UserId() userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.interviews.remove(userId, id);
   }
 }
 
@@ -131,16 +138,17 @@ export class InteractionsController {
   @Patch(':id')
   @HttpCode(204)
   update(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateInteractionDto,
   ) {
-    return this.journal.updateInteraction(id, dto);
+    return this.journal.updateInteraction(userId, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.journal.removeInteraction(id);
+  remove(@UserId() userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.journal.removeInteraction(userId, id);
   }
 }
 
@@ -150,13 +158,17 @@ export class ActionsController {
 
   @Patch(':id')
   @HttpCode(204)
-  update(@Param('id', ParseIntPipe) id: number, @Body() dto: UpdateActionDto) {
-    return this.journal.updateAction(id, dto);
+  update(
+    @UserId() userId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() dto: UpdateActionDto,
+  ) {
+    return this.journal.updateAction(userId, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.journal.removeAction(id);
+  remove(@UserId() userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.journal.removeAction(userId, id);
   }
 }

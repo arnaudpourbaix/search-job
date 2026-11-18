@@ -26,6 +26,7 @@ import {
 } from 'class-validator';
 import { StageKind } from '../generated/prisma/enums.js';
 import { STAGE_COLORS, StagesService } from './stages.service.js';
+import { UserId } from '../auth/auth.decorators.js';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
@@ -84,28 +85,36 @@ export class StagesController {
   constructor(private readonly stages: StagesService) {}
 
   @Get()
-  list() {
-    return this.stages.list();
+  list(@UserId() userId: number) {
+    return this.stages.list(userId);
   }
 
   @Post()
-  add(@Body() body: CreateStageBody) {
-    return this.stages.add(body);
+  add(@UserId() userId: number, @Body() body: CreateStageBody) {
+    return this.stages.add(userId, body);
   }
 
   @Put('order')
   @HttpCode(204)
-  reorder(@Body() body: OrderBody) {
-    return this.stages.reorder(body.ids);
+  reorder(@UserId() userId: number, @Body() body: OrderBody) {
+    return this.stages.reorder(userId, body.ids);
   }
 
   @Patch(':id')
-  update(@Param('id', ParseIntPipe) id: number, @Body() body: UpdateStageBody) {
-    return this.stages.update(id, body);
+  update(
+    @UserId() userId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: UpdateStageBody,
+  ) {
+    return this.stages.update(userId, id, body);
   }
 
   @Delete(':id')
-  remove(@Param('id', ParseIntPipe) id: number, @Query() query: RemoveQuery) {
-    return this.stages.remove(id, query.replaceWith);
+  remove(
+    @UserId() userId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Query() query: RemoveQuery,
+  ) {
+    return this.stages.remove(userId, id, query.replaceWith);
   }
 }

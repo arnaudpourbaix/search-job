@@ -20,6 +20,27 @@ npm run dev:api                    # API NestJS sur http://localhost:3000/api
 npm run dev:web                    # Front React sur http://localhost:5173
 ```
 
+### Connexion
+
+L'application exige une connexion Google ; seules les adresses de `ALLOWED_EMAILS` sont acceptées.
+Chaque utilisateur a ses propres données (campagnes, pistes, carnet, étapes, listes).
+
+1. [Google Cloud Console](https://console.cloud.google.com/apis/credentials) → créer un projet,
+   configurer l'écran de consentement (type « Externe », en mode test avec son adresse en
+   utilisateur de test), puis **Créer des identifiants → ID client OAuth → Application Web**.
+2. URI de redirection autorisée : `http://localhost:5173/api/auth/google/callback`
+   (en production : `https://<domaine>/api/auth/google/callback`).
+3. Dans `apps/api/.env` : `GOOGLE_CLIENT_ID`, `GOOGLE_CLIENT_SECRET`, `ALLOWED_EMAILS`
+   (et `APP_URL` hors local), voir `apps/api/.env.example`.
+
+Les données saisies avant l'arrivée des comptes sont reprises par la **première** adresse de
+`ALLOWED_EMAILS`, à sa première connexion.
+
+Sécurité : session en base (seule l'empreinte du jeton est stockée) dans un cookie `HttpOnly`,
+`SameSite=Lax` (`Secure` en HTTPS) ; toutes les routes de l'API exigent une session sauf
+`/api/health` et la connexion ; contrôle de l'origine des requêtes qui modifient des données ;
+en-têtes `helmet` ; limitation du nombre de requêtes.
+
 Outils : `npm run db:studio -w api` ouvre Prisma Studio pour explorer la base.
 
 Tests e2e : `npm run test:e2e -w api` utilise la base Neon `neondb_test` (même branche), vidée et remigrée à chaque lancement.
@@ -27,14 +48,17 @@ Tests e2e : `npm run test:e2e -w api` utilise la base Neon `neondb_test` (même 
 ### Import de l'ancien fichier Excel
 
 ```bash
-npm run import:excel -w api                       # lit recherches.xlsx à la racine
-npm run import:excel -w api -- autre.xlsx --reset # autre fichier, en vidant la base avant
-npm run import:excel -w api -- --campaign="Mission juillet 2027"  # campagne de rattachement
+npm run import:excel -w api -- --user=moi@gmail.com             # lit recherches.xlsx à la racine
+npm run import:excel -w api -- autre.xlsx --user=moi@gmail.com --reset  # en vidant ce compte avant
+npm run import:excel -w api -- --user=moi@gmail.com --campaign="Mission juillet 2027"
 ```
+
+- Les données vont dans le compte désigné par `--user` (connecté au moins une fois) ;
+  `--user` peut être omis s'il n'existe qu'un compte. `--reset` ne vide que ce compte.
 
 - Les pistes importées sont rattachées à une campagne (« Mission janvier 2027 » par défaut), créée si besoin.
 
-- L'import refuse de tourner si la base contient déjà des pistes, sauf avec `--reset`.
+- L'import refuse de tourner si le compte contient déjà des pistes, sauf avec `--reset`.
 - Les onglets lus sont « Pistes » et « Listes » ; « Synthèse » est ignoré car tout y est calculé.
 - Les dates « 1er contact » et « Dernier contact » deviennent des échanges dans le journal.
 - La « Prochaine action » devient une action (marquée faite si la piste est clôturée).

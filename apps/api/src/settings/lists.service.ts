@@ -22,11 +22,13 @@ type Db = PrismaService | Prisma.TransactionClient;
 /** Nombre d'utilisations de chaque valeur, par catégorie. */
 async function usageByValue(
   db: Db,
+  userId: number,
   category: ListCategory,
 ): Promise<Map<string, number>> {
   if (category === 'INTERVIEW_TYPE') {
     const rows = await db.interview.groupBy({
       by: ['type'],
+      where: { opportunity: { userId } },
       _count: { _all: true },
     });
     return new Map(rows.map((r) => [r.type, r._count._all]));
@@ -36,14 +38,14 @@ async function usageByValue(
       ? (
           await db.interaction.groupBy({
             by: ['channel'],
-            where: { channel: { not: null } },
+            where: { channel: { not: null }, opportunity: { userId } },
             _count: { _all: true },
           })
         ).map((r) => [r.channel, r._count._all] as const)
       : (
           await db.opportunity.groupBy({
             by: [fieldOf(category)],
-            where: { [fieldOf(category)]: { not: null } },
+            where: { userId, [fieldOf(category)]: { not: null } },
             _count: { _all: true },
           })
         ).map(
@@ -78,27 +80,28 @@ function fieldOf(category: ListCategory) {
 /** Remplace une valeur par une autre dans les pistes / échanges qui l'utilisent. */
 async function replaceValue(
   db: Db,
+  userId: number,
   category: ListCategory,
   from: string,
   to: string,
 ): Promise<number> {
   if (category === 'INTERVIEW_TYPE') {
     const { count } = await db.interview.updateMany({
-      where: { type: from },
+      where: { type: from, opportunity: { userId } },
       data: { type: to },
     });
     return count;
   }
   if (category === 'CHANNEL') {
     const { count } = await db.interaction.updateMany({
-      where: { channel: from },
+      where: { channel: from, opportunity: { userId } },
       data: { channel: to },
     });
     return count;
   }
   const field = fieldOf(category);
   const { count } = await db.opportunity.updateMany({
-    where: { [field]: from },
+    where: { userId, [field]: from },
     data: { [field]: to },
   });
   return count;
@@ -112,13 +115,14 @@ export class ListsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Toutes les listes, avec l'usage de chaque valeur et les valeurs hors liste. */
-  async getAll() {
+  async getAll(userId: number) {
     const rows = await this.prisma.refList.findMany({
+      where: { userId },
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
     });
     return Promise.all(
       LIST_CATEGORIES.map(async (category) => {
-        const usage = await usageByValue(this.prisma, category);
+        const usage = await usageByValue(this.prisma, userId, category);
         const items = rows
           .filter((r) => r.category === category)
           .map((r) => ({
@@ -139,12 +143,17 @@ export class ListsService {
 
   private async assertUnique(
     db: Db,
+    userId: number,
     category: ListCategory,
     value: string,
     exceptId?: number,
   ) {
     const values = await db.refList.findMany({
-      where: { category, NOT: exceptId ? { id: exceptId } : undefined },
+      where: {
+        userId,
+        category,
+        NOT: exceptId ? { id: exceptId } : undefined,
+      },
       select: { value: true },
     });
     if (values.some((v) => sameValue(v.value, value))) {
@@ -152,38 +161,44 @@ export class ListsService {
     }
   }
 
-  async add(category: ListCategory, value: string) {
-    await this.assertUnique(this.prisma, category, value);
+  async add(userId: number, category: ListCategory, value: string) {
+    await this.assertUnique(this.prisma, userId, category, value);
     const last = await this.prisma.refList.aggregate({
-      where: { category },
+      where: { userId, category },
       _max: { order: true },
     });
-    return this.prisma.refList.create({
-      data: { category, value, order: (last._max.order ?? -1) + 1 },
+    const item = await this.prisma.refList.create({
+      data: { userId, category, value, order: (last._max.order ?? -1) + 1 },
     });
+    return {
+      id: item.id,
+      category: item.category,
+      value: item.value,
+      order: item.order,
+    };
   }
 
   /** Renomme une valeur et la répercute sur les pistes / échanges qui l'utilisent. */
-  async rename(id: number, value: string) {
+  async rename(userId: number, id: number, value: string) {
     return this.prisma.$transaction(async (tx) => {
-      const item = await tx.refList.findUnique({ where: { id } });
+      const item = await tx.refList.findFirst({ where: { id, userId } });
       if (!item) throw new NotFoundException('Valeur introuvable');
       const category = item.category as ListCategory;
-      await this.assertUnique(tx, category, value, id);
+      await this.assertUnique(tx, userId, category, value, id);
       await tx.refList.update({ where: { id }, data: { value } });
       const updated =
         item.value === value
           ? 0
-          : await replaceValue(tx, category, item.value, value);
+          : await replaceValue(tx, userId, category, item.value, value);
       return { id, value, updated };
     });
   }
 
   /** Nouvel ordre : la liste complète des identifiants de la catégorie. */
-  async reorder(category: ListCategory, ids: number[]) {
+  async reorder(userId: number, category: ListCategory, ids: number[]) {
     await this.prisma.$transaction(async (tx) => {
       const current = await tx.refList.findMany({
-        where: { category },
+        where: { userId, category },
         select: { id: true },
       });
       const expected = new Set(current.map((c) => c.id));
@@ -206,22 +221,28 @@ export class ListsService {
    * Supprime une valeur de la liste. Les pistes / échanges qui l'utilisent la
    * conservent (elle apparaît alors « hors liste »), sauf si `replaceWith` est donné.
    */
-  async remove(id: number, replaceWith?: string) {
+  async remove(userId: number, id: number, replaceWith?: string) {
     return this.prisma.$transaction(async (tx) => {
-      const item = await tx.refList.findUnique({ where: { id } });
+      const item = await tx.refList.findFirst({ where: { id, userId } });
       if (!item) throw new NotFoundException('Valeur introuvable');
       const category = item.category as ListCategory;
       let updated = 0;
       if (replaceWith) {
         const target = await tx.refList.findFirst({
-          where: { category, value: replaceWith, NOT: { id } },
+          where: { userId, category, value: replaceWith, NOT: { id } },
         });
         if (!target) {
           throw new BadRequestException(
             `« ${replaceWith} » ne fait pas partie de la liste.`,
           );
         }
-        updated = await replaceValue(tx, category, item.value, replaceWith);
+        updated = await replaceValue(
+          tx,
+          userId,
+          category,
+          item.value,
+          replaceWith,
+        );
       }
       await tx.refList.delete({ where: { id } });
       return { updated };

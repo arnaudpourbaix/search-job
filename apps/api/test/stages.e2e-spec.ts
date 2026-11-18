@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
 import type { StageRow } from './stages.js';
 
@@ -14,7 +14,7 @@ type Opportunity = {
 
 describe('Settings / stages (e2e)', () => {
   let app: INestApplication<App>;
-  const http = () => request(app.getHttpServer());
+  let http: Http;
   const stages = async () =>
     (await http().get('/settings/stages').expect(200)).body as StageRow[];
   const suffix = String(Date.now()).slice(-6);
@@ -36,6 +36,7 @@ describe('Settings / stages (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    http = await signIn(app);
     await http().post('/campaigns').send({ name: 'Campagne de test' });
   });
 

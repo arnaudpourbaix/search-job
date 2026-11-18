@@ -1,6 +1,7 @@
 import { Controller, Get, Module, Query } from '@nestjs/common';
 import { Type } from 'class-transformer';
 import { IsInt, IsOptional } from 'class-validator';
+import { UserId } from '../auth/auth.decorators.js';
 import { DashboardService } from './dashboard.service.js';
 
 class DashboardQuery {
@@ -16,8 +17,8 @@ export class DashboardController {
   constructor(private readonly dashboard: DashboardService) {}
 
   @Get()
-  get(@Query() query: DashboardQuery) {
-    return this.dashboard.get(query.campaignId);
+  get(@UserId() userId: number, @Query() query: DashboardQuery) {
+    return this.dashboard.get(userId, query.campaignId);
   }
 }
 

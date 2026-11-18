@@ -7,12 +7,22 @@ export class ApiError extends Error {
   }
 }
 
+/** Appelé quand l'API répond 401 : session expirée ou révoquée. */
+let onUnauthorized: (() => void) | undefined
+export function setUnauthorizedHandler(handler: () => void) {
+  onUnauthorized = handler
+}
+
+export const isUnauthorized = (error: unknown) => error instanceof ApiError && error.status === 401
+
 async function request<T>(method: string, path: string, body?: unknown): Promise<T> {
   const res = await fetch(`/api${path}`, {
     method,
     headers: body === undefined ? undefined : { 'Content-Type': 'application/json' },
     body: body === undefined ? undefined : JSON.stringify(body),
   })
+  // Session expirée en cours d'utilisation : retour à la page de connexion.
+  if (res.status === 401 && path !== '/auth/me') onUnauthorized?.()
   if (!res.ok) {
     // NestJS renvoie { message: string | string[] }
     let message = `${res.status} ${res.statusText}`

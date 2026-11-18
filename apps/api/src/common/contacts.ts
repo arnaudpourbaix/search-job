@@ -25,14 +25,17 @@ export const interviewContactsInclude = {
   orderBy: [{ createdAt: 'asc' }, { contactId: 'asc' }],
 } satisfies Prisma.Interview$contactsArgs;
 
-/** Vérifie que tous les contacts désignés existent dans le carnet. */
+/** Vérifie que tous les contacts désignés existent dans le carnet de l'utilisateur. */
 export async function assertContacts(
   db: Prisma.TransactionClient,
+  userId: number,
   ids: number[],
 ) {
   const unique = [...new Set(ids)];
   if (!unique.length) return unique;
-  const found = await db.contact.count({ where: { id: { in: unique } } });
+  const found = await db.contact.count({
+    where: { id: { in: unique }, userId },
+  });
   if (found !== unique.length) {
     throw new BadRequestException('Contact introuvable dans le carnet.');
   }

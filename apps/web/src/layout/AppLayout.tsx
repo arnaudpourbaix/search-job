@@ -11,6 +11,7 @@ import {
 import { NavLink as RouterNavLink, Outlet } from 'react-router'
 import { CampaignSelect } from '../components/CampaignSelect.tsx'
 import { NotificationBell } from '../components/NotificationBell.tsx'
+import { UserMenu } from '../components/UserMenu.tsx'
 
 const links = [
   { to: '/', label: 'Tableau de bord', icon: IconLayoutDashboard },
@@ -41,6 +42,7 @@ export function AppLayout() {
           <Group gap="xs" wrap="nowrap">
             <CampaignSelect />
             <NotificationBell />
+            <UserMenu />
           </Group>
         </Group>
       </AppShell.Header>

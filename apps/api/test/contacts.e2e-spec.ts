@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
 
 type ContactRef = {
@@ -30,7 +30,7 @@ type Detail = {
 
 describe('Contacts (e2e)', () => {
   let app: INestApplication<App>;
-  const http = () => request(app.getHttpServer());
+  let http: Http;
   // Noms uniques : la base de test n'est pas vidée entre deux lancements.
   const tag = String(Date.now());
   const name = (n: string) => `${n} ${tag}`;
@@ -74,6 +74,7 @@ describe('Contacts (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    http = await signIn(app);
     campaignId = (
       (
         await http()

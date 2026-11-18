@@ -1,6 +1,4 @@
-import type { INestApplication } from '@nestjs/common';
-import request from 'supertest';
-import type { App } from 'supertest/types.js';
+import type { Http } from './auth.js';
 
 export type StageRow = {
   id: number;
@@ -11,13 +9,9 @@ export type StageRow = {
   usage: number;
 };
 
-/** Identifiants des étapes, par libellé (étapes d'origine créées par la migration). */
-export async function stageIds(
-  app: INestApplication<App>,
-): Promise<Record<string, number>> {
-  const res = await request(app.getHttpServer())
-    .get('/settings/stages')
-    .expect(200);
+/** Identifiants des étapes de l'utilisateur, par libellé (étapes de départ). */
+export async function stageIds(http: Http): Promise<Record<string, number>> {
+  const res = await http().get('/settings/stages').expect(200);
   return Object.fromEntries(
     (res.body as StageRow[]).map((s) => [s.label, s.id]),
   );

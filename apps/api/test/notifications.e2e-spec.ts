@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
 import { addDays, formatDay, today } from '../src/common/dates.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
 import { stageIds } from './stages.js';
@@ -24,7 +24,7 @@ describe('Notifications (e2e)', () => {
   let app: INestApplication<App>;
   let opportunityId: number;
   let stages: Record<string, number>;
-  const http = () => request(app.getHttpServer());
+  let http: Http;
   /** Notifications de la piste créée par ce test (la base est partagée). */
   const feed = async () => {
     const body = (await http().get('/notifications').expect(200)).body as Feed;
@@ -50,11 +50,10 @@ describe('Notifications (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    http = await signIn(app);
     // Une campagne en cours est nécessaire pour créer des pistes (201, ou 409 si déjà là).
-    await request(app.getHttpServer())
-      .post('/campaigns')
-      .send({ name: 'Campagne de test' });
-    stages = await stageIds(app);
+    await http().post('/campaigns').send({ name: 'Campagne de test' });
+    stages = await stageIds(http);
 
     const o = (
       await http()

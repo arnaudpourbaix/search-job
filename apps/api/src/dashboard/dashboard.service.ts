@@ -33,11 +33,11 @@ export class DashboardService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Synthèse d'une campagne (ou de toutes si campaignId est absent). */
-  async get(campaignId?: number, now = new Date()) {
+  async get(userId: number, campaignId?: number, now = new Date()) {
     const day = today(now);
     const inCampaign: Prisma.OpportunityWhereInput = campaignId
-      ? { campaignId }
-      : {};
+      ? { userId, campaignId }
+      : { userId };
     const active: Prisma.OpportunityWhereInput = {
       ...inCampaign,
       ...openStageFilter,
@@ -55,6 +55,7 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.pipelineStage.findMany({
         ...stageRef,
+        where: { userId },
         orderBy: [{ order: 'asc' }, { id: 'asc' }],
       }),
       this.prisma.opportunity.groupBy({

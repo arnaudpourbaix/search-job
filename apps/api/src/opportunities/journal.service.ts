@@ -1,6 +1,7 @@
 import { Injectable, NotFoundException } from '@nestjs/common';
 import { assertContacts, linkContacts } from '../common/contacts.js';
 import { parseDay } from '../common/dates.js';
+import { assertOpportunity } from '../common/ownership.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
   CreateActionDto,
@@ -22,16 +23,35 @@ export class JournalService {
     });
   }
 
-  private async assertOpportunity(id: number) {
-    const exists = await this.prisma.opportunity.count({ where: { id } });
-    if (!exists) throw new NotFoundException(`Piste ${id} introuvable`);
+  /** Piste d'un échange de l'utilisateur, sinon 404. */
+  private async interactionOwner(userId: number, id: number) {
+    const found = await this.prisma.interaction.findFirst({
+      where: { id, opportunity: { userId } },
+      select: { opportunityId: true },
+    });
+    if (!found) throw new NotFoundException(`Échange ${id} introuvable`);
+    return found.opportunityId;
   }
 
-  async addInteraction(opportunityId: number, dto: CreateInteractionDto) {
-    await this.assertOpportunity(opportunityId);
+  /** Piste d'une action de l'utilisateur, sinon 404. */
+  private async actionOwner(userId: number, id: number) {
+    const found = await this.prisma.action.findFirst({
+      where: { id, opportunity: { userId } },
+      select: { opportunityId: true },
+    });
+    if (!found) throw new NotFoundException(`Action ${id} introuvable`);
+    return found.opportunityId;
+  }
+
+  async addInteraction(
+    userId: number,
+    opportunityId: number,
+    dto: CreateInteractionDto,
+  ) {
+    await assertOpportunity(this.prisma, userId, opportunityId);
     await this.prisma.$transaction(async (tx) => {
       const contactId = dto.contactId ?? null;
-      if (contactId) await assertContacts(tx, [contactId]);
+      if (contactId) await assertContacts(tx, userId, [contactId]);
       await tx.interaction.create({
         data: {
           opportunityId,
@@ -47,10 +67,15 @@ export class JournalService {
     await this.touch(opportunityId);
   }
 
-  async updateInteraction(id: number, dto: UpdateInteractionDto) {
-    const opportunityId = await this.prisma.$transaction(async (tx) => {
-      if (dto.contactId) await assertContacts(tx, [dto.contactId]);
-      const { opportunityId } = await tx.interaction.update({
+  async updateInteraction(
+    userId: number,
+    id: number,
+    dto: UpdateInteractionDto,
+  ) {
+    const opportunityId = await this.interactionOwner(userId, id);
+    await this.prisma.$transaction(async (tx) => {
+      if (dto.contactId) await assertContacts(tx, userId, [dto.contactId]);
+      await tx.interaction.update({
         where: { id },
         data: {
           date: dto.date === undefined ? undefined : parseDay(dto.date),
@@ -59,21 +84,21 @@ export class JournalService {
           contactId: dto.contactId,
         },
       });
-      if (dto.contactId) await linkContacts(tx, opportunityId, [dto.contactId]);
-      return opportunityId;
+      if (dto.contactId) {
+        await linkContacts(tx, opportunityId, [dto.contactId]);
+      }
     });
     await this.touch(opportunityId);
   }
 
-  async removeInteraction(id: number) {
-    const { opportunityId } = await this.prisma.interaction.delete({
-      where: { id },
-    });
+  async removeInteraction(userId: number, id: number) {
+    const opportunityId = await this.interactionOwner(userId, id);
+    await this.prisma.interaction.delete({ where: { id } });
     await this.touch(opportunityId);
   }
 
-  async addAction(opportunityId: number, dto: CreateActionDto) {
-    await this.assertOpportunity(opportunityId);
+  async addAction(userId: number, opportunityId: number, dto: CreateActionDto) {
+    await assertOpportunity(this.prisma, userId, opportunityId);
     await this.prisma.action.create({
       data: {
         opportunityId,
@@ -84,7 +109,8 @@ export class JournalService {
     await this.touch(opportunityId);
   }
 
-  async updateAction(id: number, dto: UpdateActionDto) {
+  async updateAction(userId: number, id: number, dto: UpdateActionDto) {
+    const opportunityId = await this.actionOwner(userId, id);
     const dueDate =
       dto.dueDate === undefined
         ? undefined
@@ -93,17 +119,16 @@ export class JournalService {
           : null;
     const doneAt =
       dto.done === undefined ? undefined : dto.done ? new Date() : null;
-    const { opportunityId } = await this.prisma.action.update({
+    await this.prisma.action.update({
       where: { id },
       data: { label: dto.label, dueDate, doneAt },
     });
     await this.touch(opportunityId);
   }
 
-  async removeAction(id: number) {
-    const { opportunityId } = await this.prisma.action.delete({
-      where: { id },
-    });
+  async removeAction(userId: number, id: number) {
+    const opportunityId = await this.actionOwner(userId, id);
+    await this.prisma.action.delete({ where: { id } });
     await this.touch(opportunityId);
   }
 }

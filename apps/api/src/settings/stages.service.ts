@@ -34,32 +34,51 @@ const sameLabel = (a: string, b: string) =>
 
 const ORDER = [{ order: 'asc' }, { id: 'asc' }] as const;
 
+/** Ce que renvoie l'API d'une étape (sans le propriétaire). */
+const STAGE_SELECT = {
+  id: true,
+  label: true,
+  color: true,
+  order: true,
+  kind: true,
+} as const;
+
 @Injectable()
 export class StagesService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Étapes dans l'ordre du pipeline, avec le nombre de pistes de chacune. */
-  async list() {
+  async list(userId: number) {
     const [stages, counts] = await Promise.all([
-      this.prisma.pipelineStage.findMany({ orderBy: [...ORDER] }),
+      this.prisma.pipelineStage.findMany({
+        where: { userId },
+        orderBy: [...ORDER],
+      }),
       this.prisma.opportunity.groupBy({
         by: ['stageId'],
+        where: { userId },
         _count: { _all: true },
       }),
     ]);
-    return stages.map((s) => ({
+    return stages.map(({ userId: _owner, ...s }) => ({
       ...s,
       usage: counts.find((c) => c.stageId === s.id)?._count._all ?? 0,
     }));
   }
 
-  async add(input: Required<Pick<StageInput, 'label'>> & StageInput) {
-    await this.assertUnique(this.prisma, input.label);
+  async add(
+    userId: number,
+    input: Required<Pick<StageInput, 'label'>> & StageInput,
+  ) {
+    await this.assertUnique(this.prisma, userId, input.label);
     const last = await this.prisma.pipelineStage.aggregate({
+      where: { userId },
       _max: { order: true },
     });
     return this.prisma.pipelineStage.create({
+      select: STAGE_SELECT,
       data: {
+        userId,
         label: input.label,
         color: input.color ?? 'gray',
         kind: input.kind ?? StageKind.OPEN,
@@ -68,16 +87,17 @@ export class StagesService {
     });
   }
 
-  async update(id: number, input: StageInput) {
+  async update(userId: number, id: number, input: StageInput) {
     return this.prisma.$transaction(async (tx) => {
-      const current = await this.find(tx, id);
+      const current = await this.find(tx, userId, id);
       if (input.label !== undefined) {
-        await this.assertUnique(tx, input.label, id);
+        await this.assertUnique(tx, userId, input.label, id);
       }
       if (input.kind && CLOSED_KINDS.includes(input.kind)) {
-        await this.assertOpenStageRemains(tx, id);
+        await this.assertOpenStageRemains(tx, userId, id);
       }
       return tx.pipelineStage.update({
+        select: STAGE_SELECT,
         where: { id: current.id },
         data: input,
       });
@@ -85,8 +105,9 @@ export class StagesService {
   }
 
   /** Nouvel ordre : la liste complète des identifiants est exigée. */
-  async reorder(ids: number[]) {
+  async reorder(userId: number, ids: number[]) {
     const existing = await this.prisma.pipelineStage.findMany({
+      where: { userId },
       select: { id: true },
     });
     const known = new Set(existing.map((s) => s.id));
@@ -110,10 +131,10 @@ export class StagesService {
    * Supprime une étape. Si des pistes y sont, elles basculent vers replaceWith
    * (obligatoire dans ce cas).
    */
-  async remove(id: number, replaceWith?: number) {
+  async remove(userId: number, id: number, replaceWith?: number) {
     return this.prisma.$transaction(async (tx) => {
-      await this.find(tx, id);
-      await this.assertOpenStageRemains(tx, id);
+      await this.find(tx, userId, id);
+      await this.assertOpenStageRemains(tx, userId, id);
       const usage = await tx.opportunity.count({ where: { stageId: id } });
       let updated = 0;
       if (usage) {
@@ -127,8 +148,8 @@ export class StagesService {
             "L'étape de remplacement doit être différente.",
           );
         }
-        const target = await tx.pipelineStage.findUnique({
-          where: { id: replaceWith },
+        const target = await tx.pipelineStage.findFirst({
+          where: { id: replaceWith, userId },
         });
         if (!target) {
           throw new BadRequestException('Étape de remplacement introuvable.');
@@ -143,19 +164,20 @@ export class StagesService {
     });
   }
 
-  private async find(tx: Prisma.TransactionClient, id: number) {
-    const stage = await tx.pipelineStage.findUnique({ where: { id } });
+  private async find(tx: Prisma.TransactionClient, userId: number, id: number) {
+    const stage = await tx.pipelineStage.findFirst({ where: { id, userId } });
     if (!stage) throw new NotFoundException(`Étape ${id} introuvable`);
     return stage;
   }
 
   private async assertUnique(
     tx: Prisma.TransactionClient,
+    userId: number,
     label: string,
     exceptId?: number,
   ) {
     const all = await tx.pipelineStage.findMany({
-      where: exceptId ? { id: { not: exceptId } } : {},
+      where: { userId, ...(exceptId ? { id: { not: exceptId } } : {}) },
       select: { label: true },
     });
     if (all.some((s) => sameLabel(s.label, label))) {
@@ -166,10 +188,15 @@ export class StagesService {
   /** Il doit toujours rester au moins une étape en cours (sinon, où créer une piste ?). */
   private async assertOpenStageRemains(
     tx: Prisma.TransactionClient,
+    userId: number,
     leavingId: number,
   ) {
     const others = await tx.pipelineStage.count({
-      where: { id: { not: leavingId }, kind: { notIn: CLOSED_KINDS } },
+      where: {
+        userId,
+        id: { not: leavingId },
+        kind: { notIn: CLOSED_KINDS },
+      },
     });
     if (!others) {
       throw new BadRequestException(

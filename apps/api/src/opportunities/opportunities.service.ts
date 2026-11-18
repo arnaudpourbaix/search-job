@@ -12,6 +12,11 @@ import {
 } from '../common/contacts.js';
 import { formatDay } from '../common/dates.js';
 import {
+  assertCampaign,
+  assertStage,
+  companyIdByName,
+} from '../common/ownership.js';
+import {
   formatRound,
   interviewProgress,
   isHeld,
@@ -100,8 +105,8 @@ function contactDates(
 export class OpportunitiesService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: ListOpportunitiesQuery) {
-    const where: Prisma.OpportunityWhereInput = {};
+  async list(userId: number, query: ListOpportunitiesQuery) {
+    const where: Prisma.OpportunityWhereInput = { userId };
     if (query.campaignId) where.campaignId = query.campaignId;
     const stageFilters: Prisma.OpportunityWhereInput[] = [];
     if (query.stageIds?.length)
@@ -131,7 +136,7 @@ export class OpportunitiesService {
       // Doublons cherchés au sein d'une même campagne.
       this.prisma.opportunity.groupBy({
         by: ['campaignId', 'companyId'],
-        where: { companyId: { not: null } },
+        where: { userId, companyId: { not: null } },
         _count: { _all: true },
       }),
     ]);
@@ -171,9 +176,9 @@ export class OpportunitiesService {
     }));
   }
 
-  async get(id: number) {
-    const o = await this.prisma.opportunity.findUnique({
-      where: { id },
+  async get(userId: number, id: number) {
+    const o = await this.prisma.opportunity.findFirst({
+      where: { id, userId },
       include: {
         company: companyRef,
         intermediary: companyRef,
@@ -198,7 +203,7 @@ export class OpportunitiesService {
     const duplicateCompany =
       o.companyId !== null &&
       (await this.prisma.opportunity.count({
-        where: { companyId: o.companyId, campaignId: o.campaignId },
+        where: { userId, companyId: o.companyId, campaignId: o.campaignId },
       })) > 1;
 
     const openActions = o.actions.filter((a) => !a.doneAt);
@@ -243,17 +248,20 @@ export class OpportunitiesService {
     };
   }
 
-  async create(dto: CreateOpportunityDto) {
+  async create(userId: number, dto: CreateOpportunityDto) {
     if (!dto.companyName && !dto.intermediaryName) {
       throw new BadRequestException(MISSING_PARTY);
     }
-    const campaignId = dto.campaignId ?? (await this.currentCampaignId());
-    const stageId = dto.stageId ?? (await this.firstStageId());
+    const campaignId = dto.campaignId ?? (await this.currentCampaignId(userId));
+    const stageId = dto.stageId ?? (await this.firstStageId(userId));
     const { id } = await this.prisma.$transaction(async (tx) => {
-      const rel = await this.resolveRelations(tx, dto);
+      await assertCampaign(tx, userId, campaignId);
+      await assertStage(tx, userId, stageId);
+      const rel = await this.resolveRelations(tx, userId, dto);
       return tx.opportunity.create({
         data: {
           ...this.scalarFields(dto),
+          userId,
           campaignId,
           stageId,
           companyId: rel.companyId,
@@ -266,17 +274,19 @@ export class OpportunitiesService {
         select: { id: true },
       });
     });
-    return this.get(id);
+    return this.get(userId, id);
   }
 
-  async update(id: number, dto: UpdateOpportunityDto) {
+  async update(userId: number, id: number, dto: UpdateOpportunityDto) {
     await this.prisma.$transaction(async (tx) => {
-      const current = await tx.opportunity.findUnique({
-        where: { id },
+      const current = await tx.opportunity.findFirst({
+        where: { id, userId },
         select: { companyId: true, intermediaryId: true },
       });
       if (!current) throw new NotFoundException(`Piste ${id} introuvable`);
-      const rel = await this.resolveRelations(tx, dto);
+      if (dto.campaignId) await assertCampaign(tx, userId, dto.campaignId);
+      if (dto.stageId) await assertStage(tx, userId, dto.stageId);
+      const rel = await this.resolveRelations(tx, userId, dto);
 
       const companyId =
         rel.companyId === undefined ? current.companyId : rel.companyId;
@@ -308,12 +318,13 @@ export class OpportunitiesService {
         },
       });
     });
-    return this.get(id);
+    return this.get(userId, id);
   }
 
   /** Première étape du pipeline : étape par défaut d'une nouvelle piste. */
-  private async firstStageId(): Promise<number> {
+  private async firstStageId(userId: number): Promise<number> {
     const stage = await this.prisma.pipelineStage.findFirst({
+      where: { userId },
       orderBy: [{ order: 'asc' }, { id: 'asc' }],
       select: { id: true },
     });
@@ -326,9 +337,9 @@ export class OpportunitiesService {
   }
 
   /** Campagne en cours la plus récente : destination par défaut d'une nouvelle piste. */
-  private async currentCampaignId(): Promise<number> {
+  private async currentCampaignId(userId: number): Promise<number> {
     const campaign = await this.prisma.campaign.findFirst({
-      where: { endDate: null },
+      where: { userId, endDate: null },
       orderBy: [{ startDate: 'desc' }, { id: 'desc' }],
       select: { id: true },
     });
@@ -340,8 +351,11 @@ export class OpportunitiesService {
     return campaign.id;
   }
 
-  async remove(id: number) {
-    await this.prisma.opportunity.delete({ where: { id } });
+  async remove(userId: number, id: number) {
+    const { count } = await this.prisma.opportunity.deleteMany({
+      where: { id, userId },
+    });
+    if (!count) throw new NotFoundException(`Piste ${id} introuvable`);
   }
 
   /** Champs simples ; undefined = inchangé, null = effacé. */
@@ -373,27 +387,25 @@ export class OpportunitiesService {
    */
   private async resolveRelations(
     tx: Prisma.TransactionClient,
+    userId: number,
     dto: UpdateOpportunityDto,
   ) {
-    const companyId = async (name: string | null | undefined) => {
-      if (name === undefined || name === null) return name;
-      const company = await tx.company.upsert({
-        where: { name },
-        create: { name },
-        update: {},
-      });
-      return company.id;
-    };
-
-    const company = await companyId(dto.companyName);
-    const intermediary = await companyId(dto.intermediaryName);
+    const company = await companyIdByName(tx, userId, dto.companyName);
+    const intermediary = await companyIdByName(
+      tx,
+      userId,
+      dto.intermediaryName,
+    );
 
     const contactIds =
-      dto.contactIds && (await assertContacts(tx, dto.contactIds));
+      dto.contactIds && (await assertContacts(tx, userId, dto.contactIds));
 
     const tags = dto.tags
       ? [...new Set(dto.tags.map((t) => t.trim()).filter(Boolean))].map(
-          (name) => ({ where: { name }, create: { name } }),
+          (name) => ({
+            where: { userId_name: { userId, name } },
+            create: { userId, name },
+          }),
         )
       : undefined;
 

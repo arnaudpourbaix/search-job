@@ -18,16 +18,57 @@ enum StageKind {
   LOST // Perdue : piste clôturée sans suite (refus, abandon)
 }
 
+/// Utilisateur, authentifié par Google. Chaque utilisateur a ses propres données
+/// (campagnes, pistes, carnet, sociétés, étapes, listes) : rien n'est partagé.
+model User {
+  id          Int       @id @default(autoincrement())
+  email       String    @unique
+  /// Identifiant Google (claim « sub ») ; null pour le compte créé par la migration,
+  /// en attente de sa première connexion.
+  googleSub   String?   @unique
+  name        String?
+  picture     String?
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+
+  sessions      Session[]
+  campaigns     Campaign[]
+  opportunities Opportunity[]
+  companies     Company[]
+  contacts      Contact[]
+  stages        PipelineStage[]
+  tags          Tag[]
+  refLists      RefList[]
+}
+
+/// Session de connexion. L'identifiant est l'empreinte SHA-256 du jeton du cookie :
+/// une fuite de la table ne donne pas accès aux comptes.
+model Session {
+  id        String   @id
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
 /// Étape du pipeline, configurable dans les paramètres.
 model PipelineStage {
   id    Int       @id @default(autoincrement())
-  label String    @unique
+  label String
   /// Couleur Mantine (blue, teal, red…)
   color String    @default("gray")
   order Int       @default(0)
   kind  StageKind @default(OPEN)
 
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   opportunities Opportunity[]
+
+  @@unique([userId, label])
 }
 
 /// Statut d'un tour du processus de recrutement.
@@ -49,13 +90,18 @@ enum NotificationType {
 /// société de portage, cabinet de recrutement). Une même société peut jouer les deux rôles.
 model Company {
   id        Int      @id @default(autoincrement())
-  name      String   @unique
+  name      String
   notes     String?
   createdAt DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   contacts                  Contact[]
   opportunities             Opportunity[] @relation("OpportunityCompany")
   intermediaryOpportunities Opportunity[] @relation("OpportunityIntermediary")
+
+  @@unique([userId, name])
 }
 
 /// Carnet de contacts : partagé entre toutes les pistes et campagnes.
@@ -73,11 +119,14 @@ model Contact {
   companyId Int?
   company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
 
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   opportunities OpportunityContact[]
   interactions  Interaction[]
   interviews    InterviewContact[]
 
-  @@index([name])
+  @@index([userId, name])
 }
 
 /// Contacts d'une piste (plusieurs par piste, un contact sur plusieurs pistes).
@@ -131,6 +180,10 @@ model Opportunity {
   campaignId Int
   campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
 
+  /// Propriétaire (le même que celui de la campagne) : filtre direct des requêtes.
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   tags          Tag[]
   interactions  Interaction[]
   actions       Action[]
@@ -140,6 +193,7 @@ model Opportunity {
   @@index([stageId])
   @@index([companyId])
   @@index([campaignId])
+  @@index([userId])
 }
 
 /// Campagne de recherche (ex. « Mission janvier 2027 ») : regroupe les pistes d'une
@@ -147,20 +201,29 @@ model Opportunity {
 /// ne génère plus de notifications.
 model Campaign {
   id        Int       @id @default(autoincrement())
-  name      String    @unique
+  name      String
   goal      String? // Objectif : type de poste, TJM visé, date de démarrage…
   startDate DateTime // Jour (minuit UTC)
   endDate   DateTime? // Jour de clôture ; null = en cours
   createdAt DateTime  @default(now())
 
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
   opportunities Opportunity[]
+
+  @@unique([userId, name])
 }
 
 /// Technologie de la stack (ex. Angular, NestJS).
 model Tag {
   id            Int           @id @default(autoincrement())
-  name          String        @unique
+  name          String
+  userId        Int
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
   opportunities Opportunity[]
+
+  @@unique([userId, name])
 }
 
 /// Échange avec un recruteur ou un client (le « Journal »).
@@ -249,7 +312,10 @@ model RefList {
   value    String
   order    Int    @default(0)
 
-  @@unique([category, value])
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, value])
 }
 
 /// Interlocuteurs d'un entretien (plusieurs possibles : RH, manager, lead dev…).

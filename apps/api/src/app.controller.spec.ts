@@ -13,7 +13,7 @@ describe('AppController', () => {
         AppService,
         {
           provide: PrismaService,
-          useValue: { opportunity: { count: () => Promise.resolve(3) } },
+          useValue: { $queryRaw: () => Promise.resolve([{ '?column?': 1 }]) },
         },
       ],
     }).compile();
@@ -21,10 +21,9 @@ describe('AppController', () => {
     appController = app.get<AppController>(AppController);
   });
 
-  it('returns health status with opportunity count', async () => {
+  it('returns health status', async () => {
     await expect(appController.getHealth()).resolves.toEqual({
       status: 'ok',
-      opportunities: 3,
     });
   });
 });

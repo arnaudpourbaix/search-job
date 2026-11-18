@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
 import { addDays, formatDay, today } from '../src/common/dates.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
 
@@ -39,7 +39,7 @@ describe('Interviews (e2e)', () => {
   let app: INestApplication<App>;
   let campaignId: number;
   let opportunity: number;
-  const http = () => request(app.getHttpServer());
+  let http: Http;
   const detail = async () =>
     (
       await http()
@@ -74,6 +74,7 @@ describe('Interviews (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    http = await signIn(app);
     campaignId = (
       (
         await http()

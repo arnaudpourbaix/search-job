@@ -6,7 +6,7 @@ import {
   useQuery,
   useQueryClient,
 } from '@tanstack/react-query'
-import { api } from './api.ts'
+import { api, isUnauthorized } from './api.ts'
 import { NOTIFICATION_KEY } from './notifications.ts'
 import type {
   Day,
@@ -31,10 +31,16 @@ export const queryClient: QueryClient = new QueryClient({
       ]),
   }),
   defaultOptions: {
-    queries: { staleTime: 30_000, retry: 1 },
+    queries: {
+      staleTime: 30_000,
+      // Inutile d'insister sans session : la page de connexion s'affiche.
+      retry: (count, error) => !isUnauthorized(error) && count < 1,
+    },
     mutations: {
-      onError: (error) =>
-        notifications.show({ color: 'red', title: 'Erreur', message: error.message }),
+      onError: (error) => {
+        if (isUnauthorized(error)) return
+        notifications.show({ color: 'red', title: 'Erreur', message: error.message })
+      },
     },
   },
 })
@@ -94,8 +100,7 @@ function useRefresh() {
 export function useCreateOpportunity() {
   const refresh = useRefresh()
   return useMutation({
-    mutationFn: (input: OpportunityInput) =>
-      api.post<OpportunityDetail>('/opportunities', input),
+    mutationFn: (input: OpportunityInput) => api.post<OpportunityDetail>('/opportunities', input),
     onSuccess: refresh,
   })
 }
@@ -143,10 +148,8 @@ export function useJournal(opportunityId: number) {
       onSuccess: refresh,
     }),
     updateInteraction: useMutation({
-      mutationFn: ({
-        id,
-        ...body
-      }: InteractionInput & { id: number }) => api.patch<void>(`/interactions/${id}`, body),
+      mutationFn: ({ id, ...body }: InteractionInput & { id: number }) =>
+        api.patch<void>(`/interactions/${id}`, body),
       onSuccess: reload,
     }),
     removeInteraction: useMutation({

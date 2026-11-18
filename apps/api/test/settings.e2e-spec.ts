@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
 
 type Item = { id: number; value: string; order: number; usage: number };
@@ -15,7 +15,7 @@ type List = {
 
 describe('Settings / lists (e2e)', () => {
   let app: INestApplication<App>;
-  const http = () => request(app.getHttpServer());
+  let http: Http;
   const platforms = async () => {
     const lists = (await http().get('/settings/lists').expect(200))
       .body as List[];
@@ -34,10 +34,27 @@ describe('Settings / lists (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    http = await signIn(app);
     // Une campagne en cours est nécessaire pour créer des pistes (201, ou 409 si déjà là).
-    await request(app.getHttpServer())
-      .post('/campaigns')
-      .send({ name: 'Campagne de test' });
+    await http().post('/campaigns').send({ name: 'Campagne de test' });
+    // Les plateformes proposées à un nouvel utilisateur sont retirées : les tests
+    // partent d'une liste vide.
+    for (const item of (await platforms()).items) {
+      await http()
+        .delete('/settings/lists/items/' + item.id)
+        .expect(200);
+    }
+  });
+
+  it('propose des listes de départ à un nouvel utilisateur', async () => {
+    const fresh = await signIn(app, 'listes');
+    const lists = (await fresh().get('/settings/lists').expect(200))
+      .body as List[];
+    for (const list of lists) expect(list.items.length).toBeGreaterThan(0);
+    const stages = (await fresh().get('/settings/stages').expect(200)).body as {
+      label: string;
+    }[];
+    expect(stages.map((s) => s.label)).toContain('À contacter');
   });
 
   afterAll(async () => {

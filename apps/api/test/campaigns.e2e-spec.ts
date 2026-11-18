@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
 import { addDays, formatDay, today } from '../src/common/dates.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
 
@@ -32,7 +32,7 @@ const CORP = `Vieille Corp ${run}`;
 
 describe('Campaigns (e2e)', () => {
   let app: INestApplication<App>;
-  const http = () => request(app.getHttpServer());
+  let http: Http;
   const campaigns = async () =>
     (await http().get('/campaigns').expect(200)).body as Campaign[];
   const byName = async (name: string) =>
@@ -54,6 +54,7 @@ describe('Campaigns (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
+    http = await signIn(app);
   });
 
   afterAll(async () => {

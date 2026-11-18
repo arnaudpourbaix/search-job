@@ -9,6 +9,7 @@ import {
   Post,
 } from '@nestjs/common';
 import { IsBoolean } from 'class-validator';
+import { UserId } from '../auth/auth.decorators.js';
 import { NotificationsService } from './notifications.service.js';
 
 class ReadBody {
@@ -21,19 +22,23 @@ export class NotificationsController {
   constructor(private readonly notifications: NotificationsService) {}
 
   @Get()
-  list() {
-    return this.notifications.list();
+  list(@UserId() userId: number) {
+    return this.notifications.list(userId);
   }
 
   @Post('read-all')
   @HttpCode(204)
-  markAllRead() {
-    return this.notifications.markAllRead();
+  markAllRead(@UserId() userId: number) {
+    return this.notifications.markAllRead(userId);
   }
 
   @Patch(':id')
   @HttpCode(204)
-  markRead(@Param('id', ParseIntPipe) id: number, @Body() body: ReadBody) {
-    return this.notifications.markRead(id, body.read);
+  markRead(
+    @UserId() userId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() body: ReadBody,
+  ) {
+    return this.notifications.markRead(userId, id, body.read);
   }
 }

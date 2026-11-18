@@ -5,6 +5,7 @@ import {
 } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
 import { formatDay } from '../common/dates.js';
+import { companyIdByName } from '../common/ownership.js';
 import { stageRef } from '../common/stages.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
@@ -48,8 +49,8 @@ type ContactRow = Prisma.ContactGetPayload<{ include: typeof contactInclude }>;
 export class ContactsService {
   constructor(private readonly prisma: PrismaService) {}
 
-  async list(query: ListContactsQuery) {
-    const where: Prisma.ContactWhereInput = {};
+  async list(userId: number, query: ListContactsQuery) {
+    const where: Prisma.ContactWhereInput = { userId };
     if (query.q) {
       const contains = { contains: query.q, mode: 'insensitive' as const };
       where.OR = [
@@ -68,12 +69,12 @@ export class ContactsService {
     return rows.map((c) => this.format(c));
   }
 
-  async create(dto: CreateContactDto) {
+  async create(userId: number, dto: CreateContactDto) {
     return this.prisma.$transaction(async (tx) => {
-      const companyId = await this.companyId(tx, dto.companyName);
-      await this.assertUnique(tx, dto.name, companyId ?? null);
+      const companyId = await companyIdByName(tx, userId, dto.companyName);
+      await this.assertUnique(tx, userId, dto.name, companyId ?? null);
       const { id } = await tx.contact.create({
-        data: { ...this.fields(dto), name: dto.name, companyId },
+        data: { ...this.fields(dto), userId, name: dto.name, companyId },
         select: { id: true },
       });
       return this.format(
@@ -85,14 +86,15 @@ export class ContactsService {
     });
   }
 
-  async update(id: number, dto: UpdateContactDto) {
+  async update(userId: number, id: number, dto: UpdateContactDto) {
     return this.prisma.$transaction(async (tx) => {
-      const current = await tx.contact.findUnique({ where: { id } });
+      const current = await tx.contact.findFirst({ where: { id, userId } });
       if (!current) throw new NotFoundException(`Contact ${id} introuvable`);
-      const companyId = await this.companyId(tx, dto.companyName);
+      const companyId = await companyIdByName(tx, userId, dto.companyName);
       if (dto.name !== undefined || companyId !== undefined) {
         await this.assertUnique(
           tx,
+          userId,
           dto.name ?? current.name,
           companyId === undefined ? current.companyId : companyId,
           id,
@@ -112,8 +114,11 @@ export class ContactsService {
   }
 
   /** Le contact disparaît des pistes ; les échanges restent, sans interlocuteur. */
-  async remove(id: number) {
-    await this.prisma.contact.delete({ where: { id } });
+  async remove(userId: number, id: number) {
+    const { count } = await this.prisma.contact.deleteMany({
+      where: { id, userId },
+    });
+    if (!count) throw new NotFoundException(`Contact ${id} introuvable`);
   }
 
   private fields(dto: UpdateContactDto) {
@@ -126,29 +131,17 @@ export class ContactsService {
     };
   }
 
-  /** Société désignée par son nom (créée si inconnue) ; undefined = inchangée. */
-  private async companyId(
-    tx: Prisma.TransactionClient,
-    name: string | null | undefined,
-  ) {
-    if (name === undefined || name === null) return name;
-    const company = await tx.company.upsert({
-      where: { name },
-      create: { name },
-      update: {},
-    });
-    return company.id;
-  }
-
   /** Évite les doublons : même nom (sans tenir compte de la casse) dans la même société. */
   private async assertUnique(
     tx: Prisma.TransactionClient,
+    userId: number,
     name: string,
     companyId: number | null,
     exceptId?: number,
   ) {
     const duplicate = await tx.contact.findFirst({
       where: {
+        userId,
         name: { equals: name, mode: 'insensitive' },
         companyId,
         ...(exceptId ? { id: { not: exceptId } } : {}),

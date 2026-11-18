@@ -1,9 +1,9 @@
 import { INestApplication, ValidationPipe } from '@nestjs/common';
 import { HttpAdapterHost } from '@nestjs/core';
 import { Test } from '@nestjs/testing';
-import request from 'supertest';
 import { App } from 'supertest/types.js';
 import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
 import { addDays, formatDay, today } from '../src/common/dates.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
 import { stageIds } from './stages.js';
@@ -22,7 +22,7 @@ describe('Dashboard (e2e)', () => {
   let app: INestApplication<App>;
   let campaignId: number;
   let stages: Record<string, number>;
-  const http = () => request(app.getHttpServer());
+  let http: Http;
   const dashboard = async () =>
     (
       await http()
@@ -42,7 +42,8 @@ describe('Dashboard (e2e)', () => {
       new ValidationPipe({ whitelist: true, transform: true }),
     );
     await app.init();
-    stages = await stageIds(app);
+    http = await signIn(app);
+    stages = await stageIds(http);
     // Campagne dédiée : les chiffres ne dépendent pas des autres specs.
     campaignId = (
       (

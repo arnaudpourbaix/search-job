@@ -12,8 +12,12 @@ import { StrictMode } from 'react'
 import { createRoot } from 'react-dom/client'
 import { BrowserRouter } from 'react-router'
 import App from './App.tsx'
+import { setUnauthorizedHandler } from './api.ts'
+import { signedOut } from './auth.ts'
 import { queryClient } from './queries.ts'
 import { theme } from './theme.ts'
+
+setUnauthorizedHandler(signedOut)
 
 createRoot(document.getElementById('root')!).render(
   <StrictMode>

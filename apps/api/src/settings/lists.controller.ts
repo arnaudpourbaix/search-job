@@ -27,6 +27,7 @@ import {
   ListsService,
   type ListCategory,
 } from './lists.service.js';
+import { UserId } from '../auth/auth.decorators.js';
 
 const trim = ({ value }: { value: unknown }) =>
   typeof value === 'string' ? value.trim().replace(/\s+/g, ' ') : value;
@@ -66,31 +67,44 @@ export class ListsController {
   constructor(private readonly lists: ListsService) {}
 
   @Get()
-  getAll() {
-    return this.lists.getAll();
+  getAll(@UserId() userId: number) {
+    return this.lists.getAll(userId);
   }
 
   @Post(':category')
-  add(@Param() { category }: CategoryParam, @Body() { value }: ValueBody) {
-    return this.lists.add(category, value);
+  add(
+    @UserId() userId: number,
+    @Param() { category }: CategoryParam,
+    @Body() { value }: ValueBody,
+  ) {
+    return this.lists.add(userId, category, value);
   }
 
   @Put(':category/order')
   @HttpCode(204)
-  reorder(@Param() { category }: CategoryParam, @Body() { ids }: OrderBody) {
-    return this.lists.reorder(category, ids);
+  reorder(
+    @UserId() userId: number,
+    @Param() { category }: CategoryParam,
+    @Body() { ids }: OrderBody,
+  ) {
+    return this.lists.reorder(userId, category, ids);
   }
 
   @Patch('items/:id')
-  rename(@Param('id', ParseIntPipe) id: number, @Body() { value }: ValueBody) {
-    return this.lists.rename(id, value);
+  rename(
+    @UserId() userId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() { value }: ValueBody,
+  ) {
+    return this.lists.rename(userId, id, value);
   }
 
   @Delete('items/:id')
   remove(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Query() { replaceWith }: RemoveQuery,
   ) {
-    return this.lists.remove(id, replaceWith);
+    return this.lists.remove(userId, id, replaceWith);
   }
 }

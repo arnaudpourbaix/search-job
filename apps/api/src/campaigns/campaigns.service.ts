@@ -23,16 +23,21 @@ export class CampaignsService {
   constructor(private readonly prisma: PrismaService) {}
 
   /** Campagnes en cours d'abord, puis les plus récentes ; avec leurs chiffres clés. */
-  async list() {
+  async list(userId: number) {
     const [campaigns, counts, stages] = await Promise.all([
       this.prisma.campaign.findMany({
+        where: { userId },
         orderBy: [{ startDate: 'desc' }, { id: 'desc' }],
       }),
       this.prisma.opportunity.groupBy({
         by: ['campaignId', 'stageId'],
+        where: { userId },
         _count: { _all: true },
       }),
-      this.prisma.pipelineStage.findMany({ select: { id: true, kind: true } }),
+      this.prisma.pipelineStage.findMany({
+        where: { userId },
+        select: { id: true, kind: true },
+      }),
     ]);
     const kindOf = new Map(stages.map((s) => [s.id, s.kind]));
     const stats = (id: number) => {
@@ -52,12 +57,14 @@ export class CampaignsService {
       .map((c) => ({ ...this.toDto(c), ...stats(c.id) }));
   }
 
-  async create(dto: CreateCampaignDto) {
+  async create(userId: number, dto: CreateCampaignDto) {
     const start = dto.startDate ? parseDay(dto.startDate) : today();
     const created = await this.prisma.$transaction(async (tx) => {
       if (dto.closeOthers) {
         // Fin la veille du début, sans précéder le début de la campagne close.
-        const open = await tx.campaign.findMany({ where: { endDate: null } });
+        const open = await tx.campaign.findMany({
+          where: { userId, endDate: null },
+        });
         for (const c of open) {
           const end = addDays(start, -1);
           await tx.campaign.update({
@@ -67,14 +74,21 @@ export class CampaignsService {
         }
       }
       return tx.campaign.create({
-        data: { name: dto.name, goal: dto.goal ?? null, startDate: start },
+        data: {
+          userId,
+          name: dto.name,
+          goal: dto.goal ?? null,
+          startDate: start,
+        },
       });
     });
     return this.toDto(created);
   }
 
-  async update(id: number, dto: UpdateCampaignDto) {
-    const current = await this.prisma.campaign.findUnique({ where: { id } });
+  async update(userId: number, id: number, dto: UpdateCampaignDto) {
+    const current = await this.prisma.campaign.findFirst({
+      where: { id, userId },
+    });
     if (!current) throw new NotFoundException(`Campagne ${id} introuvable`);
     const startDate = dto.startDate
       ? parseDay(dto.startDate)
@@ -96,7 +110,9 @@ export class CampaignsService {
   }
 
   /** Suppression réservée aux campagnes vides (les pistes ne sont jamais perdues). */
-  async remove(id: number) {
+  async remove(userId: number, id: number) {
+    const exists = await this.prisma.campaign.count({ where: { id, userId } });
+    if (!exists) throw new NotFoundException(`Campagne ${id} introuvable`);
     const count = await this.prisma.opportunity.count({
       where: { campaignId: id },
     });

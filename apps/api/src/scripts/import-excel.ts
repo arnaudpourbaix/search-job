@@ -1,12 +1,14 @@
 /**
  * Import de l'ancien fichier Excel de suivi dans la base.
  *
- *   npm run import:excel -w api -- [chemin.xlsx] [--reset] [--campaign=Nom]
+ *   npm run import:excel -w api -- [chemin.xlsx] --user=adresse@gmail.com [--reset] [--campaign=Nom]
  *
- * Par défaut lit « recherches.xlsx » à la racine du dépôt. Les pistes sont
- * rattachées à la campagne nommée (créée si besoin, « Mission janvier 2027 » par défaut).
- * Refuse de s'exécuter si la base contient déjà des pistes, sauf avec --reset
- * (qui vide toutes les tables avant l'import).
+ * Par défaut lit « recherches.xlsx » à la racine du dépôt. Les données sont importées
+ * dans le compte de l'utilisateur désigné (il doit s'être connecté une première fois ;
+ * --user peut être omis s'il n'y a qu'un compte). Les pistes sont rattachées à la
+ * campagne nommée (créée si besoin, « Mission janvier 2027 » par défaut).
+ * Refuse de s'exécuter si ce compte contient déjà des pistes, sauf avec --reset
+ * (qui vide les données de ce compte, et seulement les siennes, avant l'import).
  */
 import { config as loadEnv } from 'dotenv';
 import ExcelJS from 'exceljs';
@@ -130,6 +132,11 @@ async function main() {
   loadEnv({ path: join(API_ROOT, '.env'), quiet: true });
   const args = process.argv.slice(2);
   const reset = args.includes('--reset');
+  const userEmail = args
+    .find((a) => a.startsWith('--user='))
+    ?.slice('--user='.length)
+    .trim()
+    .toLowerCase();
   const campaignName =
     args
       .find((a) => a.startsWith('--campaign='))
@@ -153,25 +160,38 @@ async function main() {
   const prisma = new PrismaClient({ adapter: createPrismaAdapter() });
 
   try {
-    const existing = await prisma.opportunity.count();
+    const users = await prisma.user.findMany({
+      where: userEmail ? { email: userEmail } : {},
+      select: { id: true, email: true },
+      take: 2,
+    });
+    if (users.length !== 1) {
+      throw new Error(
+        userEmail
+          ? `Aucun compte pour ${userEmail} : se connecter une première fois au site.`
+          : 'Plusieurs comptes (ou aucun) : préciser --user=adresse.',
+      );
+    }
+    const userId = users[0].id;
+    const mine = { userId };
+
+    const existing = await prisma.opportunity.count({ where: mine });
     if (existing > 0 && !reset) {
       throw new Error(
-        `La base contient déjà ${existing} piste(s). Relancer avec --reset pour tout remplacer.`,
+        `Le compte ${users[0].email} contient déjà ${existing} piste(s). Relancer avec --reset pour les remplacer.`,
       );
     }
 
     await prisma.$transaction(async (tx) => {
       if (reset) {
-        await tx.notification.deleteMany();
-        await tx.action.deleteMany();
-        await tx.interaction.deleteMany();
-        await tx.opportunity.deleteMany();
-        await tx.contact.deleteMany();
-        await tx.company.deleteMany();
-        await tx.tag.deleteMany();
-        await tx.refList.deleteMany();
-        await tx.campaign.deleteMany();
-        await tx.pipelineStage.deleteMany();
+        // Pistes d'abord (échanges, actions, entretiens, notifications suivent).
+        await tx.opportunity.deleteMany({ where: mine });
+        await tx.contact.deleteMany({ where: mine });
+        await tx.company.deleteMany({ where: mine });
+        await tx.tag.deleteMany({ where: mine });
+        await tx.refList.deleteMany({ where: mine });
+        await tx.campaign.deleteMany({ where: mine });
+        await tx.pipelineStage.deleteMany({ where: mine });
       }
 
       // Étapes d'origine : créées si absentes (base vide ou --reset), sans écraser
@@ -179,8 +199,9 @@ async function main() {
       const stageIds = new Map<StageCode, number>();
       for (const [order, stage] of DEFAULT_STAGES.entries()) {
         const { id } = await tx.pipelineStage.upsert({
-          where: { label: stage.label },
+          where: { userId_label: { userId, label: stage.label } },
           create: {
+            userId,
             label: stage.label,
             color: stage.color,
             kind: stage.kind,
@@ -196,8 +217,12 @@ async function main() {
         .flatMap((o) => o.interactions.map((i) => i.date))
         .reduce<Date | null>((min, d) => (!min || d < min ? d : min), null);
       const campaign = await tx.campaign.upsert({
-        where: { name: campaignName },
-        create: { name: campaignName, startDate: firstContact ?? today() },
+        where: { userId_name: { userId, name: campaignName } },
+        create: {
+          userId,
+          name: campaignName,
+          startDate: firstContact ?? today(),
+        },
         update: {},
       });
 
@@ -210,9 +235,13 @@ async function main() {
       for (const entry of [...lists, ...intermediaryTypes]) {
         await tx.refList.upsert({
           where: {
-            category_value: { category: entry.category, value: entry.value },
+            userId_category_value: {
+              userId,
+              category: entry.category,
+              value: entry.value,
+            },
           },
-          create: entry,
+          create: { ...entry, userId },
           update: { order: entry.order },
         });
       }
@@ -220,8 +249,8 @@ async function main() {
       const companyId = async (name: string | null) => {
         if (!name) return null;
         const company = await tx.company.upsert({
-          where: { name },
-          create: { name },
+          where: { userId_name: { userId, name } },
+          create: { userId, name },
           update: {},
         });
         return company.id;
@@ -236,19 +265,20 @@ async function main() {
         let contactId: number | null = null;
         if (o.contact) {
           const found = await tx.contact.findFirst({
-            where: { name: o.contact.name, companyId: contactOwner },
+            where: { userId, name: o.contact.name, companyId: contactOwner },
           });
           contactId =
             found?.id ??
             (
               await tx.contact.create({
-                data: { ...o.contact, companyId: contactOwner },
+                data: { ...o.contact, userId, companyId: contactOwner },
               })
             ).id;
         }
 
         await tx.opportunity.create({
           data: {
+            userId,
             reference: o.reference,
             title: o.title,
             platform: o.platform,
@@ -270,8 +300,8 @@ async function main() {
             contacts: contactId ? { create: { contactId } } : undefined,
             tags: {
               connectOrCreate: o.tags.map((name) => ({
-                where: { name },
-                create: { name },
+                where: { userId_name: { userId, name } },
+                create: { userId, name },
               })),
             },
             interactions: { create: o.interactions },
@@ -289,16 +319,18 @@ async function main() {
       }
     });
 
+    const ofMine = { where: mine };
+    const viaOpportunity = { where: { opportunity: mine } };
     const counts = {
-      campagnes: await prisma.campaign.count(),
-      étapes: await prisma.pipelineStage.count(),
-      pistes: await prisma.opportunity.count(),
-      sociétés: await prisma.company.count(),
-      contacts: await prisma.contact.count(),
-      tags: await prisma.tag.count(),
-      échanges: await prisma.interaction.count(),
-      actions: await prisma.action.count(),
-      listes: await prisma.refList.count(),
+      campagnes: await prisma.campaign.count(ofMine),
+      étapes: await prisma.pipelineStage.count(ofMine),
+      pistes: await prisma.opportunity.count(ofMine),
+      sociétés: await prisma.company.count(ofMine),
+      contacts: await prisma.contact.count(ofMine),
+      tags: await prisma.tag.count(ofMine),
+      échanges: await prisma.interaction.count(viaOpportunity),
+      actions: await prisma.action.count(viaOpportunity),
+      listes: await prisma.refList.count(ofMine),
     };
     console.log(`Import terminé depuis ${file}`);
     console.table(counts);

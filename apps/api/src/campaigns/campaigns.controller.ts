@@ -11,32 +11,34 @@ import {
 } from '@nestjs/common';
 import { CreateCampaignDto, UpdateCampaignDto } from './campaigns.dto.js';
 import { CampaignsService } from './campaigns.service.js';
+import { UserId } from '../auth/auth.decorators.js';
 
 @Controller('campaigns')
 export class CampaignsController {
   constructor(private readonly campaigns: CampaignsService) {}
 
   @Get()
-  list() {
-    return this.campaigns.list();
+  list(@UserId() userId: number) {
+    return this.campaigns.list(userId);
   }
 
   @Post()
-  create(@Body() dto: CreateCampaignDto) {
-    return this.campaigns.create(dto);
+  create(@UserId() userId: number, @Body() dto: CreateCampaignDto) {
+    return this.campaigns.create(userId, dto);
   }
 
   @Patch(':id')
   update(
+    @UserId() userId: number,
     @Param('id', ParseIntPipe) id: number,
     @Body() dto: UpdateCampaignDto,
   ) {
-    return this.campaigns.update(id, dto);
+    return this.campaigns.update(userId, id, dto);
   }
 
   @Delete(':id')
   @HttpCode(204)
-  remove(@Param('id', ParseIntPipe) id: number) {
-    return this.campaigns.remove(id);
+  remove(@UserId() userId: number, @Param('id', ParseIntPipe) id: number) {
+    return this.campaigns.remove(userId, id);
   }
 }
