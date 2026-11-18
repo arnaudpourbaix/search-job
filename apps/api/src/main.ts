@@ -23,7 +23,7 @@ function resolveHelmet(): (options?: HelmetOptions) => RequestHandler {
 }
 const helmet = resolveHelmet();
 
-async function bootstrap() {
+async function createApp() {
   const app = await NestFactory.create(AppModule);
   app.setGlobalPrefix('api');
   // En-têtes de sécurité (anti-sniffing, anti-iframe, HSTS…).
@@ -32,6 +32,21 @@ async function bootstrap() {
     new PrismaExceptionFilter(app.get(HttpAdapterHost).httpAdapter),
   );
   app.useGlobalPipes(new ValidationPipe({ whitelist: true, transform: true }));
+  return app;
+}
+
+const app = await createApp();
+
+/*
+ * Sur Vercel, le runtime remplace server.listen() par une version qui ne
+ * signale jamais l'écoute : `await app.listen()` y bloquerait l'import du
+ * module indéfiniment (requêtes en échec après 60 s). On y exporte donc le
+ * gestionnaire Express, que Vercel appelle directement ; ailleurs on écoute.
+ */
+if (process.env.VERCEL) {
+  await app.init();
+} else {
   await app.listen(process.env.PORT ?? 3000);
 }
-await bootstrap();
+
+export default app.getHttpAdapter().getInstance() as RequestHandler;
