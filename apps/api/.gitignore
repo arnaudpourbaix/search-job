@@ -7,3 +7,10 @@ node_modules
 # Base de test e2e
 test.db
 .neon
+
+# Skills des agents IA (installés localement, non versionnés)
+.agents/
+.claude/
+.windsurf/
+AGENTS.md
+skills-lock.json
