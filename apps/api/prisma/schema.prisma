@@ -1,0 +1,331 @@
+// Schéma de données de l'application de suivi de recherche d'emploi.
+// Doc : https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client"
+  output   = "../src/generated/prisma"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+/// Nature d'une étape du pipeline : pilote la logique (clôture, notifications, statistiques).
+enum StageKind {
+  OPEN // En cours
+  ADVANCED // Avancée : entretien, proposition (compte comme entretien)
+  WON // Gagnée : piste clôturée avec succès
+  LOST // Perdue : piste clôturée sans suite (refus, abandon)
+}
+
+/// Utilisateur, authentifié par Google. Chaque utilisateur a ses propres données
+/// (campagnes, pistes, carnet, sociétés, étapes, listes) : rien n'est partagé.
+model User {
+  id          Int       @id @default(autoincrement())
+  email       String    @unique
+  /// Identifiant Google (claim « sub ») ; null pour le compte créé par la migration,
+  /// en attente de sa première connexion.
+  googleSub   String?   @unique
+  name        String?
+  picture     String?
+  createdAt   DateTime  @default(now())
+  lastLoginAt DateTime?
+
+  sessions      Session[]
+  campaigns     Campaign[]
+  opportunities Opportunity[]
+  companies     Company[]
+  contacts      Contact[]
+  stages        PipelineStage[]
+  tags          Tag[]
+  refLists      RefList[]
+}
+
+/// Session de connexion. L'identifiant est l'empreinte SHA-256 du jeton du cookie :
+/// une fuite de la table ne donne pas accès aux comptes.
+model Session {
+  id        String   @id
+  userId    Int
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  createdAt DateTime @default(now())
+  expiresAt DateTime
+
+  @@index([userId])
+  @@index([expiresAt])
+}
+
+/// Étape du pipeline, configurable dans les paramètres.
+model PipelineStage {
+  id    Int       @id @default(autoincrement())
+  label String
+  /// Couleur Mantine (blue, teal, red…)
+  color String    @default("gray")
+  order Int       @default(0)
+  kind  StageKind @default(OPEN)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  opportunities Opportunity[]
+
+  @@unique([userId, label])
+}
+
+/// Statut d'un tour du processus de recrutement.
+enum InterviewStatus {
+  PLANNED // À venir (à planifier tant qu'il n'a pas de date)
+  DONE // Passé, en attente du retour
+  PASSED // Validé : on passe au tour suivant
+  FAILED // Non retenu
+}
+
+enum NotificationType {
+  ACTION_OVERDUE // Action dont la date est dépassée
+  ACTION_DUE_TODAY // Action prévue aujourd'hui
+  ACTION_UPCOMING // Action dans les 7 prochains jours
+  STALE_OPPORTUNITY // Piste active sans contact depuis 14 jours
+}
+
+/// Société : entreprise où l'on travaille, ou intermédiaire (apporteur d'affaires,
+/// société de portage, cabinet de recrutement). Une même société peut jouer les deux rôles.
+model Company {
+  id        Int      @id @default(autoincrement())
+  name      String
+  notes     String?
+  createdAt DateTime @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  contacts                  Contact[]
+  opportunities             Opportunity[] @relation("OpportunityCompany")
+  intermediaryOpportunities Opportunity[] @relation("OpportunityIntermediary")
+
+  @@unique([userId, name])
+}
+
+/// Carnet de contacts : partagé entre toutes les pistes et campagnes.
+model Contact {
+  id        Int      @id @default(autoincrement())
+  name      String
+  title     String? // Fonction, ex. « Recruteur », « Lead dev »
+  email     String?
+  phone     String?
+  linkedin  String?
+  notes     String?
+  createdAt DateTime @default(now())
+
+  /// Société du contact (intermédiaire ou client).
+  companyId Int?
+  company   Company? @relation(fields: [companyId], references: [id], onDelete: SetNull)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  opportunities OpportunityContact[]
+  interactions  Interaction[]
+  interviews    InterviewContact[]
+
+  @@index([userId, name])
+}
+
+/// Contacts d'une piste (plusieurs par piste, un contact sur plusieurs pistes).
+model OpportunityContact {
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  contactId     Int
+  contact       Contact     @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  createdAt     DateTime    @default(now())
+
+  @@id([opportunityId, contactId])
+  @@index([contactId])
+}
+
+/// Une piste (ligne de l'onglet « Pistes »).
+/// Son nom affiché est calculé : entreprise, poste et intermédiaire.
+model Opportunity {
+  id           Int      @id @default(autoincrement())
+  reference    String? // Référence de l'annonce, ex. « BPCE_INFO01289 »
+  title        String? // Poste
+  platform     String? // Valeur de RefList « PLATFORM »
+  contractType String? // Valeur de RefList « CONTRACT_TYPE »
+  location     String?
+  remoteDays   Int? // Jours de télétravail par semaine
+  duration     String? // ex. « 3 ans »
+  salaryMin    Int? // €/an (CDI)
+  salaryMax    Int? // €/an (CDI)
+  tjmMin       Int? // €/jour (freelance)
+  tjmMax       Int? // €/jour (freelance)
+  url          String?
+  notes        String?
+  createdAt    DateTime @default(now())
+  updatedAt    DateTime @updatedAt
+
+  /// Entreprise où l'on travaillerait (inconnue tant que l'intermédiaire ne l'a pas dite).
+  companyId        Int?
+  company          Company? @relation("OpportunityCompany", fields: [companyId], references: [id], onDelete: SetNull)
+  /// Intermédiaire éventuel, quel que soit le contrat.
+  intermediaryId   Int?
+  intermediary     Company? @relation("OpportunityIntermediary", fields: [intermediaryId], references: [id], onDelete: SetNull)
+  intermediaryType String? // Valeur de RefList « INTERMEDIARY_TYPE »
+
+  /// Interlocuteurs de la piste, choisis dans le carnet.
+  contacts OpportunityContact[]
+
+  /// Étape du pipeline.
+  stageId Int
+  stage   PipelineStage @relation(fields: [stageId], references: [id], onDelete: Restrict)
+
+  /// Campagne de recherche à laquelle la piste appartient.
+  campaignId Int
+  campaign   Campaign @relation(fields: [campaignId], references: [id], onDelete: Restrict)
+
+  /// Propriétaire (le même que celui de la campagne) : filtre direct des requêtes.
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  tags          Tag[]
+  interactions  Interaction[]
+  actions       Action[]
+  interviews    Interview[]
+  notifications Notification[]
+
+  @@index([stageId])
+  @@index([companyId])
+  @@index([campaignId])
+  @@index([userId])
+}
+
+/// Campagne de recherche (ex. « Mission janvier 2027 ») : regroupe les pistes d'une
+/// même recherche. Une campagne terminée (endDate renseignée) reste consultable mais
+/// ne génère plus de notifications.
+model Campaign {
+  id        Int       @id @default(autoincrement())
+  name      String
+  goal      String? // Objectif : type de poste, TJM visé, date de démarrage…
+  startDate DateTime // Jour (minuit UTC)
+  endDate   DateTime? // Jour de clôture ; null = en cours
+  createdAt DateTime  @default(now())
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  opportunities Opportunity[]
+
+  @@unique([userId, name])
+}
+
+/// Technologie de la stack (ex. Angular, NestJS).
+model Tag {
+  id            Int           @id @default(autoincrement())
+  name          String
+  userId        Int
+  user          User          @relation(fields: [userId], references: [id], onDelete: Cascade)
+  opportunities Opportunity[]
+
+  @@unique([userId, name])
+}
+
+/// Échange avec un recruteur ou un client (le « Journal »).
+/// Le 1er et le dernier contact d'une piste sont calculés à partir d'ici.
+model Interaction {
+  id      Int      @id @default(autoincrement())
+  date    DateTime
+  channel String? // Valeur de RefList « CHANNEL »
+  summary String
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  /// Interlocuteur de l'échange (facultatif) ; il fait alors partie des contacts de la piste.
+  contactId Int?
+  contact   Contact? @relation(fields: [contactId], references: [id], onDelete: SetNull)
+
+  createdAt DateTime @default(now())
+
+  @@index([opportunityId, date])
+  @@index([contactId])
+}
+
+/// Action à réaliser sur une piste (ex. « Rappeler »).
+model Action {
+  id      Int       @id @default(autoincrement())
+  label   String
+  dueDate DateTime?
+  doneAt  DateTime?
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  notifications Notification[]
+
+  createdAt DateTime @default(now())
+
+  @@index([dueDate, doneAt])
+}
+
+/// Tour du processus de recrutement d'une piste (échange client, entretien RH,
+/// entretien technique, test…), dans l'ordre où ils se succèdent.
+model Interview {
+  id     Int             @id @default(autoincrement())
+  order  Int             @default(0)
+  type   String // Valeur de RefList « INTERVIEW_TYPE »
+  label  String? // Précision, ex. « anglais », « avec le lead dev »
+  date   DateTime? // Jour (minuit UTC) ; null = à planifier
+  time   String? // Heure « HH:MM »
+  status InterviewStatus @default(PLANNED)
+  notes  String? // Préparation, ressenti, retour…
+
+  /// Interlocuteurs de l'entretien ; ils font alors partie des contacts de la piste.
+  contacts InterviewContact[]
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  createdAt DateTime @default(now())
+
+  @@index([opportunityId, order])
+  @@index([date])
+}
+
+model Notification {
+  id        Int              @id @default(autoincrement())
+  type      NotificationType
+  message   String
+  /// Clé d'unicité pour ne pas recréer la même alerte (ex. « ACTION_OVERDUE:12:2026-11-16 »).
+  dedupeKey String           @unique
+  readAt    DateTime?
+  createdAt DateTime         @default(now())
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+  actionId      Int?
+  action        Action?     @relation(fields: [actionId], references: [id], onDelete: Cascade)
+
+  @@index([readAt])
+}
+
+/// Listes déroulantes modifiables : PLATFORM, CONTRACT_TYPE, CHANNEL, INTERMEDIARY_TYPE, INTERVIEW_TYPE.
+model RefList {
+  id       Int    @id @default(autoincrement())
+  category String
+  value    String
+  order    Int    @default(0)
+
+  userId Int
+  user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([userId, category, value])
+}
+
+/// Interlocuteurs d'un entretien (plusieurs possibles : RH, manager, lead dev…).
+model InterviewContact {
+  interviewId Int
+  interview   Interview @relation(fields: [interviewId], references: [id], onDelete: Cascade)
+  contactId   Int
+  contact     Contact   @relation(fields: [contactId], references: [id], onDelete: Cascade)
+  createdAt   DateTime  @default(now())
+
+  @@id([interviewId, contactId])
+  @@index([contactId])
+}

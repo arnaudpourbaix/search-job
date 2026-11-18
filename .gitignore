@@ -1,0 +1,8 @@
+node_modules/
+dist/
+*.db
+*.db-journal
+.env
+apps/api/src/generated/
+recherches.xlsx
+*.tsbuildinfo

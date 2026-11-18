@@ -1,0 +1,331 @@
+import { INestApplication, ValidationPipe } from '@nestjs/common';
+import { HttpAdapterHost } from '@nestjs/core';
+import { Test } from '@nestjs/testing';
+import { App } from 'supertest/types.js';
+import { AppModule } from '../src/app.module.js';
+import { type Http, signIn } from './auth.js';
+import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
+import { stageIds } from './stages.js';
+
+type Opportunity = {
+  id: number;
+  reference: string | null;
+  stage: { id: number; label: string; kind: string };
+  company: { name: string } | null;
+  intermediary: { name: string } | null;
+  intermediaryType: string | null;
+  contacts: { id: number; name: string; email: string | null }[];
+  tags: string[];
+  firstContactAt: string | null;
+  lastContactAt: string | null;
+  nextAction: { id: number; label: string; dueDate: string | null } | null;
+  duplicateCompany: boolean;
+  interactions: {
+    id: number;
+    date: string;
+    channel: string | null;
+    summary: string;
+  }[];
+  actions: {
+    id: number;
+    label: string;
+    dueDate: string | null;
+    doneAt: string | null;
+  }[];
+};
+
+describe('Opportunities (e2e)', () => {
+  let app: INestApplication<App>;
+  let stages: Record<string, number>;
+  let http: Http;
+
+  beforeAll(async () => {
+    const moduleRef = await Test.createTestingModule({
+      imports: [AppModule],
+    }).compile();
+    app = moduleRef.createNestApplication();
+    app.useGlobalFilters(
+      new PrismaExceptionFilter(app.get(HttpAdapterHost).httpAdapter),
+    );
+    app.useGlobalPipes(
+      new ValidationPipe({ whitelist: true, transform: true }),
+    );
+    await app.init();
+    http = await signIn(app);
+    // Une campagne en cours est nécessaire pour créer des pistes (201, ou 409 si déjà là).
+    await http().post('/campaigns').send({ name: 'Campagne de test' });
+    stages = await stageIds(http);
+  });
+
+  afterAll(async () => {
+    await app.close();
+  });
+
+  let id: number;
+
+  it('crée une piste avec entreprise, intermédiaire, contact et tags', async () => {
+    const jane = (
+      (
+        await http()
+          .post('/contacts')
+          .send({
+            name: 'Jane Doe ' + Date.now(),
+            email: 'jane@acme.test',
+            companyName: 'Acme',
+          })
+          .expect(201)
+      ).body as { id: number }
+    ).id;
+    const res = await http()
+      .post('/opportunities')
+      .send({
+        companyName: 'Globex',
+        intermediaryName: 'Acme',
+        intermediaryType: "Apporteur d'affaires",
+        contactIds: [jane, jane],
+        tags: ['Angular', ' NestJS ', 'Angular'],
+        tjmMin: 500,
+        tjmMax: 600,
+      })
+      .expect(201);
+    const o = res.body as Opportunity;
+    id = o.id;
+    expect(o.stage.label).toBe('À contacter');
+    expect(o.reference).toBeNull();
+    expect(o.company?.name).toBe('Globex');
+    expect(o.intermediary?.name).toBe('Acme');
+    expect(o.intermediaryType).toBe("Apporteur d'affaires");
+    expect(o.contacts).toEqual([
+      expect.objectContaining({ id: jane, email: 'jane@acme.test' }),
+    ]);
+    expect(o.tags).toEqual(['Angular', 'NestJS']);
+    expect(o.duplicateCompany).toBe(false);
+  });
+
+  it('exige au moins une entreprise ou un intermédiaire (400)', async () => {
+    await http().post('/opportunities').send({ title: 'Dev' }).expect(400);
+    await http()
+      .patch('/opportunities/' + id)
+      .send({ companyName: null, intermediaryName: null })
+      .expect(400);
+  });
+
+  it('refuse d’effacer un champ obligatoire en mise à jour (400, pas 500)', async () => {
+    await http()
+      .patch('/opportunities/' + id)
+      .send({ stageId: null })
+      .expect(400);
+    const created = (
+      await http()
+        .post('/opportunities/' + id + '/actions')
+        .send({ label: 'Temporaire' })
+        .expect(201)
+    ).body as Opportunity;
+    const actionId = created.actions.find((a) => a.label === 'Temporaire')?.id;
+    await http()
+      .patch('/actions/' + actionId)
+      .send({ label: '  ' })
+      .expect(400);
+    await http()
+      .patch('/actions/' + actionId)
+      .send({ done: null })
+      .expect(400);
+    await http()
+      .delete('/actions/' + actionId)
+      .expect(204);
+  });
+
+  it('valide les entrées (400)', async () => {
+    await http()
+      .post('/opportunities')
+      .send({ companyName: 'X', stageId: 'NOPE' })
+      .expect(400);
+    await http()
+      .post('/opportunities/' + id + '/actions')
+      .send({ label: 'Rappeler', dueDate: '20/11/2026' })
+      .expect(400);
+  });
+
+  it('calcule 1er / dernier contact depuis le journal', async () => {
+    await http()
+      .post('/opportunities/' + id + '/interactions')
+      .send({ date: '2026-11-10', channel: 'Mail', summary: 'Premier mail' })
+      .expect(201);
+    const res = await http()
+      .post('/opportunities/' + id + '/interactions')
+      .send({ date: '2026-11-14', summary: 'Appel' })
+      .expect(201);
+    const o = res.body as Opportunity;
+    expect(o.firstContactAt).toBe('2026-11-10');
+    expect(o.lastContactAt).toBe('2026-11-14');
+    expect(o.interactions.map((i) => i.summary)).toEqual([
+      'Appel',
+      'Premier mail',
+    ]);
+  });
+
+  it('modifie un échange du journal (résumé enrichi, date, canal)', async () => {
+    const before = (
+      await http()
+        .get('/opportunities/' + id)
+        .expect(200)
+    ).body as Opportunity;
+    const appel = before.interactions.find((i) => i.summary === 'Appel');
+    expect(appel).toBeDefined();
+
+    await http()
+      .patch('/interactions/' + appel?.id)
+      .send({
+        date: '2026-11-15',
+        channel: 'Téléphone',
+        summary: 'Appel : entretien client prévu le 20/11',
+      })
+      .expect(204);
+    await http()
+      .patch('/interactions/' + appel?.id)
+      .send({ summary: '' })
+      .expect(400);
+    await http()
+      .patch('/interactions/999999')
+      .send({ summary: 'x' })
+      .expect(404);
+
+    const after = (
+      await http()
+        .get('/opportunities/' + id)
+        .expect(200)
+    ).body as Opportunity;
+    const edited = after.interactions.find((i) => i.id === appel?.id);
+    expect(edited?.summary).toBe('Appel : entretien client prévu le 20/11');
+    expect(edited?.date).toBe('2026-11-15');
+    expect(edited?.channel).toBe('Téléphone');
+    // Le dernier contact suit la nouvelle date.
+    expect(after.lastContactAt).toBe('2026-11-15');
+  });
+
+  it('prochaine action = échéance la plus proche, sans date en dernier', async () => {
+    const actionsUrl = '/opportunities/' + id + '/actions';
+    await http().post(actionsUrl).send({ label: 'Sans date' }).expect(201);
+    await http()
+      .post(actionsUrl)
+      .send({ label: 'Plus tard', dueDate: '2026-12-01' })
+      .expect(201);
+    const res = await http()
+      .post(actionsUrl)
+      .send({ label: 'Bientôt', dueDate: '2026-11-20' })
+      .expect(201);
+    const o = res.body as Opportunity;
+    expect(o.nextAction?.label).toBe('Bientôt');
+    expect(o.actions.map((a) => a.label)).toEqual([
+      'Bientôt',
+      'Plus tard',
+      'Sans date',
+    ]);
+
+    // Terminer « Bientôt » : la suivante devient « Plus tard ».
+    await http()
+      .patch('/actions/' + o.nextAction?.id)
+      .send({ done: true })
+      .expect(204);
+    const after = (
+      await http()
+        .get('/opportunities/' + id)
+        .expect(200)
+    ).body as Opportunity;
+    expect(after.nextAction?.label).toBe('Plus tard');
+    expect(after.actions.at(-1)?.label).toBe('Bientôt');
+    expect(after.actions.at(-1)?.doneAt).not.toBeNull();
+  });
+
+  it('met à jour, retire l’intermédiaire (et son type) et remplace les tags', async () => {
+    const res = await http()
+      .patch('/opportunities/' + id)
+      .send({
+        stageId: stages['Échange recruteur'],
+        reference: 'REF-42',
+        intermediaryName: null,
+        tags: ['Java'],
+        contactIds: [],
+      })
+      .expect(200);
+    const o = res.body as Opportunity;
+    expect(o.stage.label).toBe('Échange recruteur');
+    expect(o.reference).toBe('REF-42');
+    expect(o.intermediary).toBeNull();
+    expect(o.intermediaryType).toBeNull();
+    expect(o.contacts).toEqual([]);
+    expect(o.tags).toEqual(['Java']);
+    expect(o.company?.name).toBe('Globex');
+  });
+
+  it('accepte une piste sans entreprise connue (intermédiaire seul)', async () => {
+    const res = await http()
+      .post('/opportunities')
+      .send({ intermediaryName: 'Edwyn', contractType: 'Freelance' })
+      .expect(201);
+    const o = res.body as Opportunity;
+    expect(o.company).toBeNull();
+    expect(o.intermediary?.name).toBe('Edwyn');
+  });
+
+  it('signale une entreprise proposée sur plusieurs pistes', async () => {
+    await http()
+      .post('/opportunities')
+      .send({ companyName: 'Globex', intermediaryName: 'Autre ESN' })
+      .expect(201);
+    const list = (await http().get('/opportunities').expect(200))
+      .body as Opportunity[];
+    expect(list.filter((o) => o.duplicateCompany)).toHaveLength(2);
+  });
+
+  it('filtre par recherche, étape et pistes actives', async () => {
+    const byQ = (await http().get('/opportunities?q=globex').expect(200))
+      .body as Opportunity[];
+    expect(byQ).toHaveLength(2);
+    const byRef = (await http().get('/opportunities?q=REF-42').expect(200))
+      .body as Opportunity[];
+    expect(byRef.map((o) => o.id)).toEqual([id]);
+
+    await http()
+      .patch('/opportunities/' + id)
+      .send({ stageId: stages['Refusé'] })
+      .expect(200);
+    const active = (await http().get('/opportunities?active=true').expect(200))
+      .body as Opportunity[];
+    expect(active.map((o) => o.id)).not.toContain(id);
+
+    const rejected = (
+      await http()
+        .get(`/opportunities?stageIds=${stages['Refusé']},${stages['Gagné']}`)
+        .expect(200)
+    ).body as Opportunity[];
+    expect(rejected.map((o) => o.id)).toEqual([id]);
+  });
+
+  it('expose les données de référence', async () => {
+    const companies = (await http().get('/companies').expect(200)).body as {
+      name: string;
+    }[];
+    expect(companies.map((c) => c.name)).toEqual(
+      expect.arrayContaining(['Acme', 'Globex', 'Edwyn']),
+    );
+    const lists = (await http().get('/ref-lists').expect(200)).body as Record<
+      string,
+      string[]
+    >;
+    expect(lists.INTERMEDIARY_TYPE).toContain('Société de portage');
+    await http().get('/tags').expect(200);
+  });
+
+  it('supprime une piste et ses éléments (404 ensuite)', async () => {
+    await http()
+      .delete('/opportunities/' + id)
+      .expect(204);
+    await http()
+      .get('/opportunities/' + id)
+      .expect(404);
+    await http()
+      .delete('/opportunities/' + id)
+      .expect(404);
+  });
+});
