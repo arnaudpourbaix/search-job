@@ -7,11 +7,11 @@ import {
   Req,
   Res,
 } from '@nestjs/common';
-import { Throttle } from '@nestjs/throttler';
 import type { Request, Response } from 'express';
 import * as oidc from 'openid-client';
 import { AuthConfig } from './auth.config.js';
 import { type AuthUser, CurrentUser, Public } from './auth.decorators.js';
+import { RateLimit } from './rate-limit.js';
 import { clearCookie, readCookie, setCookie } from './cookies.js';
 import { SessionsService } from './sessions.service.js';
 import { UsersService } from './users.service.js';
@@ -28,7 +28,7 @@ type LoginError = 'config' | 'expired' | 'google' | 'forbidden';
 
 /** Connexion Google (OpenID Connect, flux « code » avec PKCE) et session par cookie. */
 @Controller('auth')
-@Throttle({ default: { limit: 20, ttl: 60_000 } })
+@RateLimit({ limit: 20, ttl: 60_000 })
 export class AuthController {
   private readonly logger = new Logger(AuthController.name);
   private google?: Promise<oidc.Configuration>;
