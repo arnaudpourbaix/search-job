@@ -13,7 +13,7 @@ export class AuthConfig {
 
   constructor(config: ConfigService) {
     this.appUrl = new URL(
-      config.get<string>('APP_URL') ?? 'http://localhost:5173',
+      config.get<string>('APP_URL') || 'http://localhost:5173',
     );
     this.googleClientId = config.get<string>('GOOGLE_CLIENT_ID') || undefined;
     this.googleClientSecret =
