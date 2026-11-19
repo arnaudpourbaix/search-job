@@ -12,9 +12,9 @@ Prérequis : Node.js 22+ et npm 11+.
 
 ```bash
 npm install                        # installe tout et génère le client Prisma
-cd apps/api && neon init           # lie le projet Neon et remplit apps/api/.env (DATABASE_URL…)
+cd apps/api && neon checkout dev   # lie la branche Neon « dev » et remplit apps/api/.env (DATABASE_URL…)
 cd ../..
-npm run db:migrate -w api          # applique les migrations sur la base Neon
+npm run db:migrate -w api          # applique les migrations sur la branche dev
 
 npm run dev:api                    # API NestJS sur http://localhost:3000/api
 npm run dev:web                    # Front React sur http://localhost:5173
@@ -43,8 +43,23 @@ en-têtes `helmet` ; limitation du nombre de requêtes.
 
 Outils : `npm run db:studio -w api` ouvre Prisma Studio pour explorer la base.
 
-Tests e2e : `npm run test:e2e -w api` utilise la base Neon `neondb_test` (même branche), vidée et remigrée à chaque lancement.
+Tests e2e : `npm run test:e2e -w api` utilise la base Neon `neondb_test` de la branche courante (dev), vidée et remigrée à chaque lancement.
 
+### Base de données : branches Neon
+
+- **main** : production, utilisée par l'API déployée sur Vercel (https://jobs.arnaudpourbaix.fr).
+- **dev** : copie de main pour le développement local ; `apps/api/.env` pointe dessus.
+
+Les migrations se créent sur dev (`npm run db:migrate -w api`). Avant de pousser du code qui en
+dépend, les appliquer sur main, par sa connexion directe et sans toucher à `.env` :
+
+```bash
+cd apps/api
+DATABASE_URL_UNPOOLED="$(neon connection-string main --database-name neondb)" npx prisma migrate deploy
+```
+
+Pour repartir des données de production : `neon branches reset dev --parent`
+(efface tout ce qui a été fait sur dev).
 
 ## Structure
 
