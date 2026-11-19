@@ -6,6 +6,7 @@ import {
   Button,
   Card,
   Center,
+  ColorSwatch,
   Badge,
   Group,
   Loader,
@@ -288,50 +289,24 @@ function StaleList({ items, staleDays }: { items: Dashboard['stale']; staleDays:
   )
 }
 
-/**
- * Pistes par étape : barres horizontales d'une seule teinte (une seule série),
- * étapes clôturées en gris. Valeur écrite à côté de chaque barre, détail au survol.
- */
-function StageFunnel({ byStage, total }: { byStage: Dashboard['byStage']; total: number }) {
-  const max = Math.max(1, ...byStage.map((s) => s.count))
+/** Pistes par étape, dans l'ordre du pipeline : libellé et nombre ; étapes clôturées en gris. */
+function StageCounts({ byStage }: { byStage: Dashboard['byStage'] }) {
   return (
     <Stack gap={6} role="list" aria-label="Pistes par étape">
       {byStage.map((stage) => {
-        const n = stage.count
-        const closed = isClosed(stage)
-        const share = total ? Math.round((n / total) * 100) : 0
+        const muted = isClosed(stage) || stage.count === 0
         return (
-          <Tooltip
-            key={stage.id}
-            label={`${stage.label} : ${n} piste${n > 1 ? 's' : ''} (${share} %)`}
-            position="top-start"
-          >
-            <Group gap="sm" wrap="nowrap" role="listitem" style={{ cursor: 'default' }}>
-              <Text
-                size="sm"
-                w={130}
-                lineClamp={1}
-                style={{ flexShrink: 0 }}
-                c={closed ? 'dimmed' : undefined}
-              >
+          <Group key={stage.id} justify="space-between" wrap="nowrap" role="listitem">
+            <Group gap={8} wrap="nowrap" miw={0}>
+              <ColorSwatch color={`var(--mantine-color-${stage.color}-6)`} size={10} />
+              <Text size="sm" lineClamp={1} c={muted ? 'dimmed' : undefined}>
                 {stage.label}
               </Text>
-              <Box style={{ flex: 1 }} h={16}>
-                {n > 0 && (
-                  <Box
-                    h="100%"
-                    w={`${(n / max) * 100}%`}
-                    miw={4}
-                    bg={closed ? 'gray.4' : 'blue.6'}
-                    style={{ borderRadius: '0 4px 4px 0' }}
-                  />
-                )}
-              </Box>
-              <Text size="sm" w={24} ta="right" fw={500} c={n ? undefined : 'dimmed'}>
-                {n}
-              </Text>
             </Group>
-          </Tooltip>
+            <Text size="sm" fw={500} c={muted ? 'dimmed' : undefined}>
+              {stage.count}
+            </Text>
+          </Group>
         )
       })}
     </Stack>
@@ -536,7 +511,7 @@ export function DashboardPage() {
             </Stack>
             <Stack>
               <Section title="Pistes par étape" count={data.kpis.total}>
-                <StageFunnel byStage={data.byStage} total={data.kpis.total} />
+                <StageCounts byStage={data.byStage} />
               </Section>
               <Section title="Derniers échanges">
                 <RecentList items={data.recent} />
