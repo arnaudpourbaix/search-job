@@ -25,15 +25,6 @@ export class ReferenceController {
     return lists;
   }
 
-  @Get('companies')
-  companies(@UserId() userId: number) {
-    return this.prisma.company.findMany({
-      where: { userId },
-      select: { id: true, name: true },
-      orderBy: { name: 'asc' },
-    });
-  }
-
   @Get('tags')
   async tags(@UserId() userId: number) {
     const tags = await this.prisma.tag.findMany({

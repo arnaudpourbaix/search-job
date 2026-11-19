@@ -8,6 +8,7 @@ import { OpportunityDetailPage } from './pages/OpportunityDetailPage.tsx'
 import { CampaignsPage } from './pages/CampaignsPage.tsx'
 import { LoginPage } from './pages/LoginPage.tsx'
 import { ContactsPage } from './pages/ContactsPage.tsx'
+import { CompaniesPage } from './pages/CompaniesPage.tsx'
 import { PipelinePage } from './pages/PipelinePage.tsx'
 import { SettingsPage } from './pages/SettingsPage.tsx'
 
@@ -54,6 +55,7 @@ export default function App() {
         <Route path="pistes/:id" element={<OpportunityDetailPage />} />
         <Route path="pipeline" element={<PipelinePage />} />
         <Route path="contacts" element={<ContactsPage />} />
+        <Route path="entreprises" element={<CompaniesPage />} />
         <Route path="campagnes" element={<CampaignsPage />} />
         <Route path="parametres" element={<SettingsPage />} />
         <Route path="*" element={<Navigate to="/" replace />} />

@@ -9,6 +9,7 @@ import {
   Group,
   Loader,
   Menu,
+  Select,
   Stack,
   Table,
   Text,
@@ -18,6 +19,7 @@ import {
 import { modals } from '@mantine/modals'
 import {
   IconBrandLinkedin,
+  IconBuildingSkyscraper,
   IconDots,
   IconMail,
   IconPencil,
@@ -247,15 +249,50 @@ function ContactCards({ contacts }: { contacts: Contact[] }) {
   )
 }
 
+/** Valeur du filtre pour les contacts sans entreprise. */
+const NO_COMPANY = 'aucune'
+
 /** Carnet de contacts : partagé entre toutes les pistes et campagnes. */
 export function ContactsPage() {
   const { data, isPending } = useContacts()
   const [params, setParams] = useSearchParams()
   const search = params.get('q') ?? ''
-  const setSearch = (q: string) => setParams(q ? { q } : {}, { replace: true })
+  // Identifiant d'entreprise, ou « aucune » pour les contacts sans entreprise.
+  const company = params.get('entreprise')
+  const setParam = (key: string, value: string | null) =>
+    setParams(
+      (prev) => {
+        const next = new URLSearchParams(prev)
+        if (value) next.set(key, value)
+        else next.delete(key)
+        return next
+      },
+      { replace: true },
+    )
+
+  // Entreprises ayant au moins un contact, avec leur nombre de contacts.
+  const companyCounts = new Map<number, { name: string; count: number }>()
+  for (const c of data ?? []) {
+    if (!c.company) continue
+    const entry = companyCounts.get(c.company.id)
+    if (entry) entry.count++
+    else companyCounts.set(c.company.id, { name: c.company.name, count: 1 })
+  }
+  const companyOptions = [
+    ...[...companyCounts]
+      .sort(([, a], [, b]) => a.name.localeCompare(b.name, 'fr'))
+      .map(([id, { name, count }]) => ({ value: String(id), label: `${name} (${count})` })),
+    { value: NO_COMPANY, label: 'Sans entreprise' },
+  ]
+  const selectedCompany =
+    company && company !== NO_COMPANY ? companyCounts.get(Number(company)) : null
 
   const q = normalizeSearch(search)
-  const contacts = (data ?? []).filter((c) => !q || contactSearchText(c).includes(q))
+  const contacts = (data ?? []).filter(
+    (c) =>
+      (!q || contactSearchText(c).includes(q)) &&
+      (!company || (company === NO_COMPANY ? !c.company : c.company?.id === Number(company))),
+  )
 
   return (
     <Stack>
@@ -268,7 +305,13 @@ export function ContactsPage() {
             </Badge>
           )}
         </Group>
-        <Button leftSection={<IconPlus size={18} />} onClick={() => openContactModal({})}>
+        <Button
+          leftSection={<IconPlus size={18} />}
+          onClick={() =>
+            // Filtré sur une entreprise : le nouveau contact y est rattaché d'office.
+            openContactModal({ initial: { companyName: selectedCompany?.name ?? null } })
+          }
+        >
           Nouveau contact
         </Button>
       </Group>
@@ -277,12 +320,28 @@ export function ContactsPage() {
         journal.
       </Text>
 
-      <TextInput
-        placeholder="Rechercher (nom, fonction, société, email, téléphone)"
-        leftSection={<IconSearch size={16} />}
-        value={search}
-        onChange={(e) => setSearch(e.currentTarget.value)}
-      />
+      <Group gap="sm" align="flex-start">
+        <TextInput
+          placeholder="Rechercher (nom, fonction, société, email, téléphone)"
+          leftSection={<IconSearch size={16} />}
+          value={search}
+          onChange={(e) => setParam('q', e.currentTarget.value)}
+          style={{ flex: '1 1 260px' }}
+        />
+        <Select
+          placeholder="Toutes les entreprises"
+          aria-label="Entreprise"
+          leftSection={<IconBuildingSkyscraper size={16} />}
+          data={companyOptions}
+          value={company}
+          onChange={(v) => setParam('entreprise', v)}
+          searchable
+          clearable
+          nothingFoundMessage="Aucune entreprise"
+          style={{ flex: '1 1 220px' }}
+          maw={{ sm: 320 }}
+        />
+      </Group>
 
       {isPending ? (
         <Center py="xl">

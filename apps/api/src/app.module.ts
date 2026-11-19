@@ -6,6 +6,7 @@ import { AppController } from './app.controller.js';
 import { AppService } from './app.service.js';
 import { AuthModule } from './auth/auth.module.js';
 import { CampaignsModule } from './campaigns/campaigns.module.js';
+import { CompaniesModule } from './companies/companies.module.js';
 import { ContactsModule } from './contacts/contacts.module.js';
 import { DashboardModule } from './dashboard/dashboard.module.js';
 import { NotificationsModule } from './notifications/notifications.module.js';
@@ -29,6 +30,7 @@ import { SettingsModule } from './settings/settings.module.js';
     ScheduleModule.forRoot(),
     NotificationsModule,
     CampaignsModule,
+    CompaniesModule,
     ContactsModule,
     DashboardModule,
   ],

@@ -9,11 +9,11 @@ import {
 import { api, isUnauthorized } from './api.ts'
 import { NOTIFICATION_KEY } from './notifications.ts'
 import type {
+  Company,
   Day,
   OpportunityDetail,
   OpportunityInput,
   OpportunitySummary,
-  Ref,
   RefLists,
 } from './types.ts'
 
@@ -81,7 +81,7 @@ export const useRefLists = () =>
   useQuery({ queryKey: ['ref-lists'], queryFn: () => api.get<RefLists>('/ref-lists') })
 
 export const useCompanies = () =>
-  useQuery({ queryKey: ['companies'], queryFn: () => api.get<Ref[]>('/companies') })
+  useQuery({ queryKey: ['companies'], queryFn: () => api.get<Company[]>('/companies') })
 
 export const useTags = () =>
   useQuery({ queryKey: ['tags'], queryFn: () => api.get<string[]>('/tags') })

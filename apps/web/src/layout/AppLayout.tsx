@@ -3,6 +3,7 @@ import { useDisclosure } from '@mantine/hooks'
 import {
   IconBriefcase,
   IconAddressBook,
+  IconBuildingSkyscraper,
   IconFlag,
   IconLayoutDashboard,
   IconLayoutKanban,
@@ -18,6 +19,7 @@ const links = [
   { to: '/pistes', label: 'Pistes', icon: IconBriefcase },
   { to: '/pipeline', label: 'Pipeline', icon: IconLayoutKanban },
   { to: '/contacts', label: 'Contacts', icon: IconAddressBook },
+  { to: '/entreprises', label: 'Entreprises', icon: IconBuildingSkyscraper },
   { to: '/campagnes', label: 'Campagnes', icon: IconFlag },
   { to: '/parametres', label: 'Paramètres', icon: IconSettings },
 ]
