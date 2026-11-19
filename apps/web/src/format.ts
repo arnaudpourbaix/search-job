@@ -5,8 +5,8 @@ export const CLOSED_KINDS: StageKind[] = ['WON', 'LOST']
 
 export const isClosed = (stage: Pick<Stage, 'kind'>) => CLOSED_KINDS.includes(stage.kind)
 
-/** Nombre de jours sans contact au-delà duquel une piste active est signalée. */
-export const STALE_DAYS = 14
+/** Délai de relance par défaut (réglable dans les paramètres). */
+export const DEFAULT_STALE_DAYS = 14
 
 /** Date du jour (locale) au format YYYY-MM-DD. */
 export function today(): Day {
@@ -48,12 +48,23 @@ export const DUE_COLORS: Record<DueStatus, string> = {
   none: 'gray',
 }
 
-/** Piste active sans contact depuis plus de 14 jours. */
-export function isStale(o: Pick<OpportunitySummary, 'stage' | 'lastContactAt'>): boolean {
+/** Relance reportée à une date future. */
+export const isSnoozed = (o: Pick<OpportunitySummary, 'snoozedUntil'>) =>
+  o.snoozedUntil !== null && o.snoozedUntil > today()
+
+/**
+ * Piste à relancer : active, déjà contactée, dernier contact plus vieux que le délai
+ * de relance, et relance non reportée. Même règle que l'API.
+ */
+export function isStale(
+  o: Pick<OpportunitySummary, 'stage' | 'lastContactAt' | 'snoozedUntil'>,
+  staleDays: number,
+): boolean {
   return (
     !isClosed(o.stage) &&
     o.lastContactAt !== null &&
-    o.lastContactAt < addDays(today(), -STALE_DAYS)
+    o.lastContactAt < addDays(today(), -staleDays) &&
+    !isSnoozed(o)
   )
 }
 

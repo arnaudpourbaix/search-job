@@ -46,7 +46,15 @@ export class SessionsService {
     const session = await this.prisma.session.findUnique({
       where: { id },
       include: {
-        user: { select: { id: true, email: true, name: true, picture: true } },
+        user: {
+          select: {
+            id: true,
+            email: true,
+            name: true,
+            picture: true,
+            staleDays: true,
+          },
+        },
       },
     });
     if (!session) return null;

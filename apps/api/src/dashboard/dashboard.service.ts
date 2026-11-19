@@ -2,10 +2,8 @@ import { Injectable } from '@nestjs/common';
 import { Prisma } from '../generated/prisma/client.js';
 import { InterviewStatus, StageKind } from '../generated/prisma/enums.js';
 import { addDays, formatDay, today } from '../common/dates.js';
-import {
-  STALE_DAYS,
-  UPCOMING_DAYS,
-} from '../notifications/notifications.service.js';
+import { UPCOMING_DAYS } from '../notifications/notifications.service.js';
+import { needsFollowUp } from '../common/follow-up.js';
 import { interviewContactsInclude } from '../common/contacts.js';
 import {
   heldInterviewWhere,
@@ -44,6 +42,7 @@ export class DashboardService {
     };
 
     const [
+      user,
       stages,
       stageCounts,
       actions,
@@ -53,6 +52,10 @@ export class DashboardService {
       lastWeekInterviews,
       openRounds,
     ] = await Promise.all([
+      this.prisma.user.findUniqueOrThrow({
+        where: { id: userId },
+        select: { staleDays: true },
+      }),
       this.prisma.pipelineStage.findMany({
         ...stageRef,
         where: { userId },
@@ -82,6 +85,7 @@ export class DashboardService {
         where: active,
         select: {
           ...opportunityRef.select,
+          snoozedUntil: true,
           interactions: {
             select: { date: true },
             orderBy: { date: 'desc' },
@@ -133,14 +137,15 @@ export class DashboardService {
       }),
     ]);
 
-    const staleBefore = addDays(day, -STALE_DAYS);
+    // Pistes à relancer, la plus ancienne d'abord (relances reportées exclues).
     const stale = activeOpportunities
-      .map(({ interactions, interviews, ...o }) => ({
+      .map(({ interactions, interviews, snoozedUntil, ...o }) => ({
         opportunity: o,
+        snoozedUntil,
         last: latestDate(interactions, interviews),
       }))
-      .filter(
-        (s): s is typeof s & { last: Date } => !!s.last && s.last < staleBefore,
+      .filter((s): s is typeof s & { last: Date } =>
+        needsFollowUp(s.last, s.snoozedUntil, day, user.staleDays),
       )
       .map(({ opportunity, last }) => ({
         opportunity,
@@ -176,6 +181,7 @@ export class DashboardService {
     };
 
     return {
+      staleDays: user.staleDays,
       byStage,
       kpis: {
         total: stageCounts.reduce((n, c) => n + c._count._all, 0),
@@ -190,6 +196,8 @@ export class DashboardService {
         upcomingInterviews: interviews.upcoming.filter(
           (r) => r.date! >= todayKey,
         ).length,
+        // Tous les tours non tranchés : ceux du bloc « Entretiens ».
+        openInterviews: rounds.length,
       },
       interviews,
       todo,

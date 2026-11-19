@@ -6,6 +6,7 @@ import { AppModule } from '../src/app.module.js';
 import { type Http, signIn } from './auth.js';
 import { addDays, formatDay, today } from '../src/common/dates.js';
 import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js';
+import { stageIds } from './stages.js';
 
 type Round = {
   id: number;
@@ -332,5 +333,34 @@ describe('Interviews (e2e)', () => {
     expect(types.items.find((i) => i.value === 'Test')!.usage).toBeGreaterThan(
       0,
     );
+  });
+
+  it("un premier entretien fait passer la piste à l'étape des entretiens, sans jamais la faire reculer", async () => {
+    const stages = await stageIds(http);
+    const stageAfterInterview = async (stageLabel: string) => {
+      const id = (
+        (
+          await http()
+            .post('/opportunities')
+            .send({
+              companyName: 'Étape ' + stageLabel,
+              stageId: stages[stageLabel],
+              campaignId,
+            })
+            .expect(201)
+        ).body as { id: number }
+      ).id;
+      const res = await http()
+        .post(`/opportunities/${id}/interviews`)
+        .send({ type: 'Entretien RH' })
+        .expect(201);
+      return (res.body as { stage: { label: string } }).stage.label;
+    };
+    expect(await stageAfterInterview('À contacter')).toBe('Entretiens');
+    expect(await stageAfterInterview('Dossier envoyé')).toBe('Entretiens');
+    // Déjà plus loin, ou close : inchangée.
+    expect(await stageAfterInterview('Proposition')).toBe('Proposition');
+    expect(await stageAfterInterview('Refusé')).toBe('Refusé');
+    expect(await stageAfterInterview('Gagné')).toBe('Gagné');
   });
 });

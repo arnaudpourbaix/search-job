@@ -135,7 +135,10 @@ export const STAGE_COLOR_OPTIONS = [
 
 export const STAGE_KIND_INFO: Record<StageKind, { label: string; help: string }> = {
   OPEN: { label: 'En cours', help: 'Étape normale du pipeline' },
-  ADVANCED: { label: 'Avancée', help: 'Compte comme entretien au tableau de bord' },
+  ADVANCED: {
+    label: 'Avancée',
+    help: "Entretiens, proposition… Une piste passe d'elle-même à la première étape avancée à son premier entretien",
+  },
   WON: { label: 'Gagnée', help: 'Clôt la piste avec succès' },
   LOST: { label: 'Perdue', help: 'Clôt la piste sans suite (refus, abandon)' },
 }

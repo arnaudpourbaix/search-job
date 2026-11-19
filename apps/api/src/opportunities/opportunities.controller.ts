@@ -18,6 +18,7 @@ import {
   CreateOpportunityDto,
   ListOpportunitiesQuery,
   ReorderInterviewsDto,
+  SnoozeDto,
   UpdateActionDto,
   UpdateInteractionDto,
   UpdateInterviewDto,
@@ -64,6 +65,17 @@ export class OpportunitiesController {
   @HttpCode(204)
   remove(@UserId() userId: number, @Param('id', ParseIntPipe) id: number) {
     return this.opportunities.remove(userId, id);
+  }
+
+  /** Reporte la relance de la piste (ou annule le report). */
+  @Put(':id/snooze')
+  @HttpCode(204)
+  snooze(
+    @UserId() userId: number,
+    @Param('id', ParseIntPipe) id: number,
+    @Body() { until }: SnoozeDto,
+  ) {
+    return this.opportunities.snooze(userId, id, until ?? null);
   }
 
   /** Ajoute un échange au journal et renvoie la piste à jour. */

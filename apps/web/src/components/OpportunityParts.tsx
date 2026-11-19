@@ -7,6 +7,7 @@ import {
   opportunityName,
   opportunitySubtitle,
 } from '../format.ts'
+import { useStaleDays } from '../followUp.ts'
 import type { OpportunitySummary } from '../types.ts'
 import { DuplicateCompanyIcon, StaleIcon } from './badges.tsx'
 
@@ -54,7 +55,7 @@ export function OpportunityName({
 }
 
 export function LastContact({ o }: { o: OpportunitySummary }) {
-  const stale = isStale(o)
+  const stale = isStale(o, useStaleDays())
   return (
     <Group gap={4} wrap="nowrap">
       <Text size="sm" c={stale ? 'red' : undefined} fs={stale ? 'italic' : undefined}>

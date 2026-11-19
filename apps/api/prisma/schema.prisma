@@ -30,6 +30,8 @@ model User {
   picture     String?
   createdAt   DateTime  @default(now())
   lastLoginAt DateTime?
+  /// Nombre de jours sans contact au-delà duquel une piste active est « à relancer ».
+  staleDays   Int       @default(14)
 
   sessions      Session[]
   campaigns     Campaign[]
@@ -83,7 +85,7 @@ enum NotificationType {
   ACTION_OVERDUE // Action dont la date est dépassée
   ACTION_DUE_TODAY // Action prévue aujourd'hui
   ACTION_UPCOMING // Action dans les 7 prochains jours
-  STALE_OPPORTUNITY // Piste active sans contact depuis 14 jours
+  STALE_OPPORTUNITY // Piste active sans contact depuis le délai de relance (14 jours par défaut)
 }
 
 /// Société : entreprise où l'on travaille, ou intermédiaire (apporteur d'affaires,
@@ -158,6 +160,8 @@ model Opportunity {
   tjmMax       Int? // €/jour (freelance)
   url          String?
   notes        String?
+  /// Relance reportée : la piste n'est pas « à relancer » avant ce jour (minuit UTC).
+  snoozedUntil DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 

@@ -3,6 +3,8 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
+import type { Prisma } from '../generated/prisma/client.js';
+import { StageKind } from '../generated/prisma/enums.js';
 import { assertContacts, linkContacts } from '../common/contacts.js';
 import { parseDay } from '../common/dates.js';
 import { assertOpportunity } from '../common/ownership.js';
@@ -12,6 +14,37 @@ import type { CreateInterviewDto, UpdateInterviewDto } from './dto.js';
 /** undefined = inchangé, null ou vide = effacé. */
 const dayOrNull = (v: string | null | undefined) =>
   v === undefined ? undefined : v ? parseDay(v) : null;
+
+/**
+ * Un processus d'entretien qui démarre fait passer la piste à la première étape
+ * « avancée » du pipeline. Uniquement depuis une étape « en cours » placée avant
+ * elle : la piste ne recule jamais, et une piste close n'est pas rouverte.
+ */
+async function advanceToInterviewStage(
+  tx: Prisma.TransactionClient,
+  userId: number,
+  opportunityId: number,
+) {
+  const { stage } = await tx.opportunity.findUniqueOrThrow({
+    where: { id: opportunityId },
+    select: { stage: { select: { id: true, order: true, kind: true } } },
+  });
+  if (stage.kind !== StageKind.OPEN) return;
+  const target = await tx.pipelineStage.findFirst({
+    where: { userId, kind: StageKind.ADVANCED },
+    orderBy: [{ order: 'asc' }, { id: 'asc' }],
+    select: { id: true, order: true },
+  });
+  const isAfter =
+    target &&
+    (target.order > stage.order ||
+      (target.order === stage.order && target.id > stage.id));
+  if (!isAfter) return;
+  await tx.opportunity.update({
+    where: { id: opportunityId },
+    data: { stageId: target.id },
+  });
+}
 
 /** Tours du processus de recrutement d'une piste. */
 @Injectable()
@@ -35,7 +68,7 @@ export class InterviewsService {
     return found.opportunityId;
   }
 
-  /** Ajoute un tour à la fin du processus. */
+  /** Ajoute un tour à la fin du processus (et avance la piste à l'étape des entretiens). */
   async add(userId: number, opportunityId: number, dto: CreateInterviewDto) {
     await assertOpportunity(this.prisma, userId, opportunityId);
     await this.prisma.$transaction(async (tx) => {
@@ -59,6 +92,7 @@ export class InterviewsService {
       });
       // Les interlocuteurs font partie des contacts de la piste.
       await linkContacts(tx, opportunityId, contactIds);
+      await advanceToInterviewStage(tx, userId, opportunityId);
     });
     await this.touch(opportunityId);
   }

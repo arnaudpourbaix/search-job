@@ -36,6 +36,7 @@ import {
   type EditableList,
   type ListItem,
 } from '../settings.ts'
+import { FollowUpSettingsCard } from '../components/FollowUpSettingsCard.tsx'
 import { StagesCard } from '../components/StagesCard.tsx'
 
 const sameValue = (a: string, b: string) =>
@@ -312,12 +313,14 @@ export function SettingsPage() {
       <div>
         <Title order={2}>Paramètres</Title>
         <Text c="dimmed">
-          Étapes du pipeline et listes proposées dans les formulaires. Un renommage est
-          répercuté sur les pistes et le journal.
+          Étapes du pipeline, délai de relance et listes proposées dans les formulaires. Un
+          renommage est répercuté sur les pistes et le journal.
         </Text>
       </div>
 
       <StagesCard />
+
+      <FollowUpSettingsCard />
 
       {isPending ? (
         <Center p="xl">

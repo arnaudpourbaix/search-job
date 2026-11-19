@@ -6,6 +6,7 @@ import {
   IconX,
   type Icon,
 } from '@tabler/icons-react'
+import { notifications } from '@mantine/notifications'
 import { useMutation, useQueryClient } from '@tanstack/react-query'
 import { api } from './api.ts'
 import { addDays, formatDay, today } from './format.ts'
@@ -79,6 +80,15 @@ export function useInterviews(opportunityId: number) {
       mutationFn: (body: InterviewInput) =>
         api.post<OpportunityDetail>(`/opportunities/${opportunityId}/interviews`, body),
       onSuccess: (detail) => {
+        // Le premier entretien peut faire avancer la piste d'étape : on le signale.
+        const before = qc.getQueryData<OpportunityDetail>(['opportunity', opportunityId])
+        if (before && before.stage.id !== detail.stage.id) {
+          notifications.show({
+            color: detail.stage.color,
+            title: 'Étape mise à jour',
+            message: `La piste passe à l'étape « ${detail.stage.label} ».`,
+          })
+        }
         qc.setQueryData(['opportunity', opportunityId], detail)
         void qc.invalidateQueries({ queryKey: ['opportunities'] })
         void qc.invalidateQueries({ queryKey: ['settings', 'lists'] })

@@ -16,7 +16,6 @@ import {
   SimpleGrid,
   Stack,
   Text,
-  Textarea,
   TextInput,
   ThemeIcon,
   Timeline,
@@ -30,7 +29,6 @@ import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import {
   IconArrowLeft,
-  IconCheck,
   IconDots,
   IconExternalLink,
   IconHourglass,
@@ -41,10 +39,11 @@ import {
 } from '@tabler/icons-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
-import { DueBadge, DuplicateCompanyIcon, StaleIcon } from '../components/badges.tsx'
+import { DueBadge, DuplicateCompanyIcon } from '../components/badges.tsx'
+import { FollowUpStatus } from '../components/FollowUp.tsx'
 import { ContactLines } from '../components/ContactLines.tsx'
 import { ContactNames } from '../components/ContactNames.tsx'
-import { ContactSelect } from '../components/ContactPicker.tsx'
+import { InteractionForm } from '../components/InteractionForm.tsx'
 import { InterviewsCard } from '../components/InterviewsCard.tsx'
 import { OpportunityModal } from '../components/OpportunityModal.tsx'
 import { ROUND_STATE_INFO, roundState, roundTitle } from '../interviews.ts'
@@ -54,7 +53,6 @@ import {
   formatDay,
   formatPay,
   isClosed,
-  isStale,
   opportunityName,
   opportunityStart,
   today,
@@ -63,11 +61,9 @@ import {
   useDeleteOpportunity,
   useJournal,
   useOpportunity,
-  useRefLists,
   useUpdateOpportunity,
 } from '../queries.ts'
 import { useStages } from '../settings.ts'
-import type { InteractionInput } from '../queries.ts'
 import type { Interaction, InterviewRound, OpportunityDetail } from '../types.ts'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
@@ -181,7 +177,7 @@ function AgeBadge({ o }: { o: OpportunityDetail }) {
           {label}
         </Badge>
       </Tooltip>
-      {isStale(o) && <StaleIcon />}
+      <FollowUpStatus o={o} />
     </Group>
   )
 }
@@ -267,95 +263,6 @@ function ActionsCard({ o }: { o: OpportunityDetail }) {
         </Group>
       </form>
     </Card>
-  )
-}
-
-type InteractionValues = {
-  date: string | null
-  channel: string | null
-  summary: string
-  contactId: number | null
-}
-
-/** Formulaire d'échange, pour l'ajout comme pour la modification. */
-function InteractionForm({
-  o,
-  initial,
-  submitLabel,
-  loading,
-  onSubmit,
-  onCancel,
-}: {
-  o: OpportunityDetail
-  initial: InteractionValues
-  submitLabel: string
-  loading: boolean
-  onSubmit: (v: InteractionInput) => void
-  onCancel?: () => void
-}) {
-  const { data: lists } = useRefLists()
-  const form = useForm<InteractionValues>({
-    initialValues: initial,
-    validate: {
-      date: (v) => (v ? null : 'Date obligatoire'),
-      summary: (v) => (v.trim() ? null : 'Résumé obligatoire'),
-    },
-  })
-
-  return (
-    <form
-      onSubmit={form.onSubmit((v) =>
-        onSubmit({
-          date: v.date!,
-          channel: v.channel,
-          summary: v.summary.trim(),
-          contactId: v.contactId,
-        }),
-      )}
-    >
-      <Stack gap="xs">
-        <Group gap="xs" grow>
-          <DateInput
-            valueFormat="DD/MM/YYYY"
-            locale="fr"
-            maxDate={today()}
-            aria-label="Date de l'échange"
-            {...form.getInputProps('date')}
-          />
-          <Select
-            placeholder="Canal"
-            aria-label="Canal"
-            data={lists?.CHANNEL ?? []}
-            clearable
-            {...form.getInputProps('channel')}
-          />
-        </Group>
-        <ContactSelect
-          value={form.values.contactId}
-          onChange={(id) => form.setFieldValue('contactId', id)}
-          opportunityContacts={o.contacts}
-          defaultCompany={o.intermediary?.name ?? o.company?.name ?? null}
-        />
-        <Textarea
-          placeholder="Résumé de l'échange"
-          aria-label="Résumé de l'échange"
-          autosize
-          minRows={2}
-          data-autofocus={onCancel ? true : undefined}
-          {...form.getInputProps('summary')}
-        />
-        <Group justify="flex-end" gap="xs">
-          {onCancel && (
-            <Button size="xs" variant="default" onClick={onCancel}>
-              Annuler
-            </Button>
-          )}
-          <Button type="submit" size="xs" leftSection={<IconCheck size={14} />} loading={loading}>
-            {submitLabel}
-          </Button>
-        </Group>
-      </Stack>
-    </form>
   )
 }
 

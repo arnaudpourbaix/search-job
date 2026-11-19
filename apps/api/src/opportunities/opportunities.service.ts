@@ -10,7 +10,7 @@ import {
   interviewContactsInclude,
   opportunityContactsInclude,
 } from '../common/contacts.js';
-import { formatDay } from '../common/dates.js';
+import { formatDay, parseDay } from '../common/dates.js';
 import {
   assertCampaign,
   assertStage,
@@ -172,6 +172,7 @@ export class OpportunitiesService {
       duplicateCompany:
         o.companyId !== null &&
         duplicated.has(`${o.campaignId}:${o.companyId}`),
+      snoozedUntil: day(o.snoozedUntil),
       updatedAt: o.updatedAt,
     }));
   }
@@ -213,6 +214,7 @@ export class OpportunitiesService {
       campaign: formatCampaign(o.campaign),
       tags: o.tags.map((t) => t.name),
       ...contactDates(o.interactions, o.interviews),
+      snoozedUntil: day(o.snoozedUntil),
       nextAction: nextAction(openActions),
       duplicateCompany,
       interviewProgress: interviewProgress(o.interviews),
@@ -349,6 +351,15 @@ export class OpportunitiesService {
       );
     }
     return campaign.id;
+  }
+
+  /** Reporte la relance jusqu'à un jour donné (null : annule le report). */
+  async snooze(userId: number, id: number, until: string | null) {
+    const { count } = await this.prisma.opportunity.updateMany({
+      where: { id, userId },
+      data: { snoozedUntil: until ? parseDay(until) : null },
+    });
+    if (!count) throw new NotFoundException(`Piste ${id} introuvable`);
   }
 
   async remove(userId: number, id: number) {

@@ -6,6 +6,7 @@ import {
   Card,
   Group,
   Menu,
+  Modal,
   Select,
   Stack,
   Text,
@@ -40,7 +41,9 @@ import {
   useInterviews,
   type InterviewInput,
 } from '../interviews.ts'
-import { useRefLists } from '../queries.ts'
+import { isClosed, today } from '../format.ts'
+import { useRefLists, useUpdateOpportunity } from '../queries.ts'
+import { useStages } from '../settings.ts'
 import { ContactNames } from './ContactNames.tsx'
 import { ContactsPicker } from './ContactPicker.tsx'
 import type { InterviewRound, InterviewStatus, OpportunityDetail } from '../types.ts'
@@ -189,7 +192,7 @@ function StatusMenu({
 
 /**
  * Raccourcis sur le tour en cours : « planifier » tant qu'il n'a pas de date,
- * « c'est passé » ensuite, puis « validé » / « non retenu ».
+ * « effectué » à partir du jour de l'entretien (rien avant), puis « validé » / « non retenu ».
  */
 function QuickActions({
   round,
@@ -201,11 +204,13 @@ function QuickActions({
   onEdit: () => void
 }) {
   if (round.status === 'PLANNED') {
+    // Entretien à une date future : rien à signaler avant le jour J.
+    if (round.date && round.date > today()) return null
     return (
       <Group gap={6}>
         {round.date ? (
           <Button size="compact-xs" variant="light" color="yellow" onClick={() => onChange('DONE')}>
-            C'est passé
+            Effectué
           </Button>
         ) : (
           <Button size="compact-xs" variant="light" onClick={onEdit}>
@@ -242,6 +247,57 @@ function QuickActions({
   return null
 }
 
+/**
+ * Après un « non retenu » : propose de clore la piste sur une étape « perdue ».
+ * Rien n'est fait d'office : un refus à un entretien n'arrête pas toujours tout.
+ */
+function CloseAfterFailurePrompt({
+  o,
+  opened,
+  onClose,
+}: {
+  o: OpportunityDetail
+  opened: boolean
+  onClose: () => void
+}) {
+  const { data: stages } = useStages()
+  const lost = (stages ?? []).filter((s) => s.kind === 'LOST')
+  const [stageId, setStageId] = useState<string | null>(null)
+  const update = useUpdateOpportunity(o.id)
+  const selected = stageId ?? (lost[0] ? String(lost[0].id) : null)
+
+  return (
+    <Modal opened={opened && lost.length > 0} onClose={onClose} title="Clore la piste ?">
+      <Stack gap="sm">
+        <Text size="sm">
+          L'entretien est non retenu. Veux-tu passer la piste à une étape de clôture ? Elle sortira
+          alors des pistes actives, du tableau de bord et des relances.
+        </Text>
+        <Select
+          label="Étape"
+          data={lost.map((s) => ({ value: String(s.id), label: s.label }))}
+          value={selected}
+          onChange={setStageId}
+          allowDeselect={false}
+        />
+        <Group justify="flex-end" gap="xs">
+          <Button variant="default" onClick={onClose}>
+            Garder la piste ouverte
+          </Button>
+          <Button
+            color="red"
+            loading={update.isPending}
+            disabled={!selected}
+            onClick={() => update.mutate({ stageId: Number(selected) }, { onSuccess: onClose })}
+          >
+            Clore la piste
+          </Button>
+        </Group>
+      </Stack>
+    </Modal>
+  )
+}
+
 /** Type proposé pour le tour suivant : celui qui suit le dernier tour dans la liste des types. */
 function nextType(rounds: InterviewRound[], types: string[]) {
   const last = rounds.at(-1)
@@ -254,12 +310,18 @@ export function InterviewsCard({ o }: { o: OpportunityDetail }) {
   const { add, update, remove, reorder } = useInterviews(o.id)
   const { data: lists } = useRefLists()
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
+  const [proposeClose, setProposeClose] = useState(false)
   const rounds = o.interviews
   const progress = o.interviewProgress
   const currentIndex = rounds.findIndex((r) => r.status === 'PLANNED' || r.status === 'DONE')
 
+  /** Un tour qui devient « non retenu » sur une piste ouverte : proposer de la clore. */
+  const afterSave = (r: InterviewRound, status: InterviewStatus | undefined) => () => {
+    if (status === 'FAILED' && r.status !== 'FAILED' && !isClosed(o.stage)) setProposeClose(true)
+  }
+
   const setStatus = (r: InterviewRound) => (status: InterviewStatus) =>
-    update.mutate({ id: r.id, status })
+    update.mutate({ id: r.id, status }, { onSuccess: afterSave(r, status) })
 
   const move = (index: number, delta: number) => {
     const ids = rounds.map((r) => r.id)
@@ -404,7 +466,15 @@ export function InterviewsCard({ o }: { o: OpportunityDetail }) {
                     loading={update.isPending}
                     onCancel={() => setEditingId(null)}
                     onSubmit={(v) =>
-                      update.mutate({ id: r.id, ...v }, { onSuccess: () => setEditingId(null) })
+                      update.mutate(
+                        { id: r.id, ...v },
+                        {
+                          onSuccess: () => {
+                            setEditingId(null)
+                            afterSave(r, v.status)()
+                          },
+                        },
+                      )
                     }
                   />
                 ) : (
@@ -457,6 +527,7 @@ export function InterviewsCard({ o }: { o: OpportunityDetail }) {
           />
         </Card>
       )}
+      <CloseAfterFailurePrompt o={o} opened={proposeClose} onClose={() => setProposeClose(false)} />
     </Card>
   )
 }

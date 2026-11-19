@@ -7,11 +7,10 @@ import {
   lastHeldInterviewSelect,
   latestDate,
 } from '../common/interviews.js';
+import { needsFollowUp } from '../common/follow-up.js';
 import { openStageFilter, stageRef } from '../common/stages.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
-/** Piste active sans échange depuis ce nombre de jours : à relancer. */
-export const STALE_DAYS = 14;
 /** Horizon des actions « à venir ». */
 export const UPCOMING_DAYS = 7;
 
@@ -41,7 +40,6 @@ export class NotificationsService {
   async compute(userId?: number, now = new Date()): Promise<Alert[]> {
     const day = today(now);
     const horizon = addDays(day, UPCOMING_DAYS);
-    const staleBefore = addDays(day, -STALE_DAYS);
     // Pistes non clôturées des campagnes en cours (d'un utilisateur, ou de tous).
     const active = {
       ...(userId === undefined ? {} : { userId }),
@@ -68,6 +66,9 @@ export class NotificationsService {
         },
         select: {
           id: true,
+          snoozedUntil: true,
+          // Délai de relance propre à chaque utilisateur.
+          user: { select: { staleDays: true } },
           interactions: {
             select: { date: true },
             orderBy: { date: 'desc' },
@@ -98,7 +99,7 @@ export class NotificationsService {
     for (const o of opportunities) {
       // Dernier contact : échange du journal ou entretien ayant eu lieu.
       const last = latestDate(o.interactions, o.interviews)!;
-      if (last >= staleBefore) continue;
+      if (!needsFollowUp(last, o.snoozedUntil, day, o.user.staleDays)) continue;
       const days = Math.round((day.getTime() - last.getTime()) / 86_400_000);
       alerts.push({
         type: NotificationType.STALE_OPPORTUNITY,

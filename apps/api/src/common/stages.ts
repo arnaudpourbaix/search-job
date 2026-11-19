@@ -15,7 +15,8 @@ export const stageRef = {
 } as const;
 
 /**
- * Étapes d'origine (créées par la migration), avec le code utilisé par l'import Excel.
+ * Étapes de départ d'un nouvel utilisateur (la migration d'origine les a créées, avec
+ * « Entretien client » au lieu de « Entretiens »), avec un code stable.
  * L'ordre du tableau est l'ordre d'affichage.
  */
 export const DEFAULT_STAGES = [
@@ -39,7 +40,8 @@ export const DEFAULT_STAGES = [
   },
   {
     code: 'CLIENT_INTERVIEW',
-    label: 'Entretien client',
+    // La piste y passe d'elle-même au premier entretien du processus de recrutement.
+    label: 'Entretiens',
     color: 'violet',
     kind: StageKind.ADVANCED,
   },

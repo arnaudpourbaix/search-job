@@ -3,6 +3,7 @@ import {
   Alert,
   Anchor,
   Box,
+  Button,
   Card,
   Center,
   Badge,
@@ -22,24 +23,19 @@ import {
   IconCheck,
   IconClockPause,
   IconMessages,
+  IconSend,
   IconUsersGroup,
   type Icon,
 } from '@tabler/icons-react'
 import { useQuery } from '@tanstack/react-query'
-import type { ReactNode } from 'react'
+import { useState, type ReactNode } from 'react'
 import { Link } from 'react-router'
 import { api } from '../api.ts'
 import { useCampaignSelection } from '../campaigns.ts'
 import { DueBadge } from '../components/badges.tsx'
 import { ClosedCampaignNotice } from '../components/CampaignSelect.tsx'
-import {
-  formatDay,
-  isClosed,
-  opportunityName,
-  opportunitySubtitle,
-  STALE_DAYS,
-  today,
-} from '../format.ts'
+import { FollowUpModal, SnoozeMenu } from '../components/FollowUp.tsx'
+import { formatDay, isClosed, opportunityName, opportunitySubtitle, today } from '../format.ts'
 import { ContactNames } from '../components/ContactNames.tsx'
 import { ROUND_STATE_INFO, roundState, roundTitle, roundWhen } from '../interviews.ts'
 import { useNotificationMutations } from '../notifications.ts'
@@ -51,6 +47,8 @@ type OpportunityRef = Pick<
 >
 
 type Dashboard = {
+  /** Délai de relance de l'utilisateur (jours sans contact). */
+  staleDays: number
   byStage: (Stage & { count: number })[]
   kpis: {
     total: number
@@ -61,6 +59,8 @@ type Dashboard = {
     interviews: number
     contactsLastWeek: number
     upcomingInterviews: number
+    /** Entretiens non tranchés : à venir, à planifier, en attente du retour. */
+    openInterviews: number
   }
   interviews: Record<'upcoming' | 'toSchedule' | 'awaiting', DashboardRound[]>
   todo: { id: number; label: string; dueDate: Day; opportunity: OpportunityRef }[]
@@ -85,27 +85,37 @@ const useDashboard = (campaignId: number | undefined, enabled: boolean) =>
 
 const daysSince = (day: Day) => Math.round((Date.parse(today()) - Date.parse(day)) / 86_400_000)
 
-/** Chiffre clé ; l'icône et le libellé portent le sens, pas la couleur seule. */
+/** Fait défiler jusqu'à un bloc du tableau de bord. */
+function scrollToSection(id: string) {
+  document.getElementById(id)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+}
+
+/**
+ * Chiffre clé ; l'icône et le libellé portent le sens, pas la couleur seule.
+ * `to` mène à une page, `section` au bloc détaillé de cette page.
+ */
 function Kpi({
   value,
   label,
   icon: KpiIcon,
   color,
   to,
-  title,
+  section,
+  help,
 }: {
   value: number
   label: string
-  /** Explication au survol. */
-  title?: string
+  /** Explication au survol : ce que le chiffre compte. */
+  help: string
   icon: Icon
   color: string
   to?: string
+  section?: string
 }) {
   const alert = value > 0 && (color === 'red' || color === 'orange')
   const body = (
     <Card withBorder padding="sm" h="100%">
-      <Group gap="sm" wrap="nowrap" align="flex-start" title={title}>
+      <Group gap="sm" wrap="nowrap" align="flex-start">
         <ThemeIcon variant="light" color={value > 0 ? color : 'gray'} size="lg">
           <KpiIcon size={20} />
         </ThemeIcon>
@@ -120,26 +130,46 @@ function Kpi({
       </Group>
     </Card>
   )
-  return to ? (
+  const content = to ? (
     <Anchor component={Link} to={to} underline="never" c="inherit">
+      {body}
+    </Anchor>
+  ) : section ? (
+    <Anchor
+      href={`#${section}`}
+      underline="never"
+      c="inherit"
+      onClick={(e) => {
+        e.preventDefault()
+        scrollToSection(section)
+      }}
+    >
       {body}
     </Anchor>
   ) : (
     body
   )
+  return (
+    <Tooltip label={help} multiline w={260} withArrow openDelay={300}>
+      <Box h="100%">{content}</Box>
+    </Tooltip>
+  )
 }
 
 function Section({
+  id,
   title,
   count,
   children,
 }: {
+  /** Ancre, cible des chiffres clés. */
+  id?: string
   title: string
   count?: number
   children: ReactNode
 }) {
   return (
-    <Card withBorder>
+    <Card withBorder id={id} style={{ scrollMarginTop: 72 }}>
       <Group justify="space-between" mb="sm">
         <Title order={4}>{title}</Title>
         {count !== undefined && (
@@ -211,19 +241,42 @@ function TodoList({ items }: { items: Dashboard['todo'] }) {
   )
 }
 
-function StaleList({ items }: { items: Dashboard['stale'] }) {
-  if (!items.length) return <Empty>Toutes les pistes actives ont eu un échange récent.</Empty>
+function StaleList({ items, staleDays }: { items: Dashboard['stale']; staleDays: number }) {
+  const [relaunching, setRelaunching] = useState<OpportunityRef | null>(null)
+  if (!items.length) {
+    return <Empty>Aucune piste active sans échange depuis plus de {staleDays} jours.</Empty>
+  }
   return (
-    <Stack gap="sm">
-      {items.map(({ opportunity, lastContactAt }) => (
-        <Group key={opportunity.id} justify="space-between" wrap="nowrap">
-          <OpportunityLink o={opportunity} />
-          <Text size="sm" c="red.8" style={{ flexShrink: 0 }}>
-            {daysSince(lastContactAt)} j
-          </Text>
-        </Group>
-      ))}
-    </Stack>
+    <>
+      <Stack gap="sm">
+        {items.map(({ opportunity, lastContactAt }) => (
+          <Group key={opportunity.id} justify="space-between" wrap="wrap" gap="xs">
+            <Box miw={0} style={{ flex: '1 1 180px' }}>
+              <OpportunityLink o={opportunity} />
+              <Text size="xs" c="red.8">
+                Dernier contact il y a {daysSince(lastContactAt)} jours
+              </Text>
+            </Box>
+            <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+              <Button
+                size="compact-xs"
+                variant="light"
+                leftSection={<IconSend size={14} />}
+                onClick={() => setRelaunching(opportunity)}
+              >
+                Relancer
+              </Button>
+              <SnoozeMenu opportunityId={opportunity.id} />
+            </Group>
+          </Group>
+        ))}
+      </Stack>
+      <FollowUpModal
+        opportunityId={relaunching?.id ?? null}
+        name={relaunching ? opportunityName(relaunching) : ''}
+        onClose={() => setRelaunching(null)}
+      />
+    </>
   )
 }
 
@@ -321,7 +374,12 @@ function InterviewList({ interviews }: { interviews: Dashboard['interviews'] }) 
     { title: 'À planifier', items: interviews.toSchedule },
   ].filter((g) => g.items.length)
   if (!groups.length) {
-    return <Empty>Aucun entretien en cours. Ajoute-les depuis la fiche d'une piste.</Empty>
+    return (
+      <Empty>
+        Aucun entretien en cours. Les entretiens se saisissent dans « Processus de recrutement » sur
+        la fiche d'une piste ; ceux qui sont validés ou non retenus n'apparaissent plus ici.
+      </Empty>
+    )
   }
   return (
     <Stack gap="md">
@@ -410,35 +468,47 @@ export function DashboardPage() {
             <Kpi
               value={data.kpis.active}
               label={`active${data.kpis.active > 1 ? 's' : ''} sur ${data.kpis.total}`}
+              help="Pistes non clôturées (ni gagnées, ni perdues), sur le total des pistes."
               icon={IconBriefcase}
               color="blue"
               to="/pistes"
             />
-            <Kpi value={data.kpis.overdue} label="en retard" icon={IconAlertTriangle} color="red" />
+            <Kpi
+              value={data.kpis.overdue}
+              label="en retard"
+              help="Actions non faites dont l'échéance est dépassée, sur les pistes actives."
+              icon={IconAlertTriangle}
+              color="red"
+              section="a-faire"
+            />
             <Kpi
               value={data.kpis.dueToday}
               label="aujourd'hui"
+              help="Actions non faites prévues aujourd'hui, sur les pistes actives."
               icon={IconCalendarDue}
               color="orange"
+              section="a-faire"
             />
             <Kpi
               value={data.kpis.stale}
               label="à relancer"
+              help={`Pistes actives sans échange ni entretien depuis plus de ${data.staleDays} jours (délai réglable dans les paramètres), hors relances reportées.`}
               icon={IconClockPause}
               color="gray"
-              title={`Pistes actives sans échange depuis plus de ${STALE_DAYS} jours`}
+              section="a-relancer"
             />
             <Kpi
-              value={data.kpis.upcomingInterviews}
-              label="entretiens"
+              value={data.kpis.openInterviews}
+              label={`entretien${data.kpis.openInterviews > 1 ? 's' : ''} en cours`}
+              help={`${data.interviews.upcoming.length} à venir, ${data.interviews.awaiting.length} en attente du retour, ${data.interviews.toSchedule.length} à planifier. Les entretiens validés ou non retenus ne comptent pas.`}
               icon={IconUsersGroup}
-              title={`Entretiens à venir (date fixée) · ${data.kpis.interviews} piste${data.kpis.interviews > 1 ? 's' : ''} à une étape avancée`}
               color="violet"
-              to="/pipeline"
+              section="entretiens"
             />
             <Kpi
               value={data.kpis.contactsLastWeek}
               label="échanges 7 j"
+              help="Échanges du journal et entretiens passés au cours des 7 derniers jours."
               icon={IconMessages}
               color="teal"
             />
@@ -446,21 +516,14 @@ export function DashboardPage() {
 
           <SimpleGrid cols={{ base: 1, md: 2 }} spacing="md">
             <Stack>
-              <Section
-                title="Entretiens"
-                count={
-                  data.interviews.upcoming.length +
-                  data.interviews.awaiting.length +
-                  data.interviews.toSchedule.length
-                }
-              >
+              <Section id="entretiens" title="Entretiens en cours" count={data.kpis.openInterviews}>
                 <InterviewList interviews={data.interviews} />
               </Section>
-              <Section title="À faire" count={data.todo.length}>
+              <Section id="a-faire" title="À faire" count={data.todo.length}>
                 <TodoList items={data.todo} />
               </Section>
-              <Section title="À relancer" count={data.stale.length}>
-                <StaleList items={data.stale} />
+              <Section id="a-relancer" title="À relancer" count={data.stale.length}>
+                <StaleList items={data.stale} staleDays={data.staleDays} />
               </Section>
             </Stack>
             <Stack>

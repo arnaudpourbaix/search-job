@@ -124,6 +124,8 @@ export type OpportunitySummary = {
   campaign: { id: number; name: string; endDate: Day | null }
   /** Même entreprise proposée sur plusieurs pistes de la campagne. */
   duplicateCompany: boolean
+  /** Relance reportée : pas « à relancer » avant ce jour (null : pas de report). */
+  snoozedUntil: Day | null
   updatedAt: string
 }
 

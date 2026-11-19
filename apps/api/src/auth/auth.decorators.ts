@@ -11,6 +11,8 @@ export type AuthUser = {
   email: string;
   name: string | null;
   picture: string | null;
+  /** Délai de relance (jours sans contact). */
+  staleDays: number;
 };
 
 export type AuthedRequest = Request & { user?: AuthUser };

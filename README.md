@@ -66,4 +66,12 @@ Pour repartir des données de production : `neon branches reset dev --parent`
 ```
 apps/api   NestJS + Prisma (Postgres/Neon) – schéma dans apps/api/prisma/schema.prisma
 apps/web   React + Vite + Mantine
+docs       Documentation fonctionnelle
 ```
+
+## Documentation
+
+- [Tableau de bord](docs/tableau-de-bord.md) : ce que comptent les chiffres et les blocs,
+  règles des relances.
+- [Entretiens](docs/entretiens.md) : processus de recrutement d'une piste, statuts, raccourcis
+  et lien avec l'étape du pipeline.

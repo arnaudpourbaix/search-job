@@ -338,3 +338,10 @@ export class ReorderInterviewsDto {
   @IsInt({ each: true })
   ids: number[];
 }
+
+/** Report de la relance : jour jusqu'auquel la piste n'est pas « à relancer » ; null = annulé. */
+export class SnoozeDto {
+  @IsOptional()
+  @Matches(DAY, { message: `until ${DAY_MESSAGE}` })
+  until?: string | null;
+}

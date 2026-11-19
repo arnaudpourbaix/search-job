@@ -8,6 +8,8 @@ export type Me = {
   email: string
   name: string | null
   picture: string | null
+  /** Délai de relance : jours sans contact avant qu'une piste soit « à relancer ». */
+  staleDays: number
 }
 
 export const ME_KEY = ['me'] as const

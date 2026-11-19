@@ -93,6 +93,7 @@ describe('Connexion et cloisonnement (e2e)', () => {
         email: user.email,
         name: null,
         picture: null,
+        staleDays: 14,
       });
     });
 
