@@ -50,12 +50,13 @@ modification (menu « … » → Modifier) permet aussi de changer le statut.
 
 ## Étape de la piste
 
-Le processus détaille une piste ; l'**étape** la situe dans le pipeline (colonnes, graphique
+Le processus détaille une piste ; l'**étape** la situe dans le pipeline (colonnes, bloc
 « Pistes par étape », filtres). Les deux sont liés :
 
 - **Premier entretien** : dès qu'un entretien est ajouté, même sans date, la piste passe d'elle-même
   à la **première étape de nature « Avancée »** du pipeline (par défaut « Entretiens »). Un
-  message l'indique. La piste ne recule jamais : si elle est déjà à une étape avancée (une
+  message l'indique, et le changement est noté dans l'historique de la piste (voir
+  [Pistes](pistes.md#changements-détape)). La piste ne recule jamais : si elle est déjà à une étape avancée (une
   proposition, par exemple), ou gagnée ou perdue, son étape ne change pas.
 - **Entretien non retenu** : l'application **propose** de clore la piste sur une étape de
   nature « Perdue » (« Refusé », « Abandonné »…), au choix. Rien n'est fait d'office : on peut

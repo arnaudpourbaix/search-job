@@ -22,6 +22,10 @@ import {
   isHeld,
   interviewSummarySelect,
 } from '../common/interviews.js';
+import {
+  recordStageChange,
+  stageChangesInclude,
+} from '../common/stage-history.js';
 import { openStageFilter, stageRef } from '../common/stages.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
@@ -196,6 +200,7 @@ export class OpportunitiesService {
           orderBy: [{ order: 'asc' }, { id: 'asc' }],
           include: { contacts: interviewContactsInclude },
         },
+        stageChanges: stageChangesInclude,
       },
     });
     if (!o) throw new NotFoundException(`Piste ${id} introuvable`);
@@ -230,6 +235,13 @@ export class OpportunitiesService {
           contacts: r.contacts.map((c) => c.contact),
         }),
       ),
+      stageChanges: o.stageChanges.map((c) => ({
+        id: c.id,
+        fromLabel: c.fromLabel,
+        toLabel: c.toLabel,
+        auto: c.auto,
+        at: c.createdAt,
+      })),
       interactions: o.interactions.map((i) => ({
         id: i.id,
         date: formatDay(i.date),
@@ -260,7 +272,7 @@ export class OpportunitiesService {
       await assertCampaign(tx, userId, campaignId);
       await assertStage(tx, userId, stageId);
       const rel = await this.resolveRelations(tx, userId, dto);
-      return tx.opportunity.create({
+      const created = await tx.opportunity.create({
         data: {
           ...this.scalarFields(dto),
           userId,
@@ -275,6 +287,8 @@ export class OpportunitiesService {
         },
         select: { id: true },
       });
+      await recordStageChange(tx, created.id, null, stageId);
+      return created;
     });
     return this.get(userId, id);
   }
@@ -283,7 +297,7 @@ export class OpportunitiesService {
     await this.prisma.$transaction(async (tx) => {
       const current = await tx.opportunity.findFirst({
         where: { id, userId },
-        select: { companyId: true, intermediaryId: true },
+        select: { companyId: true, intermediaryId: true, stageId: true },
       });
       if (!current) throw new NotFoundException(`Piste ${id} introuvable`);
       if (dto.campaignId) await assertCampaign(tx, userId, dto.campaignId);
@@ -319,6 +333,9 @@ export class OpportunitiesService {
           tags: rel.tags && { set: [], connectOrCreate: rel.tags },
         },
       });
+      if (dto.stageId) {
+        await recordStageChange(tx, id, current.stageId, dto.stageId);
+      }
     });
     return this.get(userId, id);
   }

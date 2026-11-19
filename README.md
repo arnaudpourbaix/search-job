@@ -75,5 +75,7 @@ docs       Documentation fonctionnelle
   règles des relances.
 - [Entretiens](docs/entretiens.md) : processus de recrutement d'une piste, statuts, raccourcis
   et lien avec l'étape du pipeline.
+- [Pistes](docs/pistes.md) : lieu et itinéraire, échanges et historique d'une piste (dont les
+  changements d'étape).
 - [Entreprises](docs/entreprises.md) : clients et intermédiaires, adresse qui préremplit le lieu
   d'une piste.

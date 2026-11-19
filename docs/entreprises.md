@@ -6,7 +6,9 @@ entreprises se créent aussi d'elles-mêmes quand on saisit un nom nouveau sur u
 contact.
 
 Une entreprise a un **nom** (unique, casse ignorée), une **adresse** et des **notes**, toutes
-deux facultatives. La recherche de la page porte sur le nom, l'adresse et les notes.
+deux facultatives. La recherche de la page porte sur le nom, l'adresse et les notes. Sur la
+page, l'adresse est un lien Google Maps, avec un lien d'itinéraire comme pour le lieu d'une
+piste (voir [Pistes](pistes.md#lieu-et-itinéraire)).
 
 ## Adresse et lieu d'une piste
 

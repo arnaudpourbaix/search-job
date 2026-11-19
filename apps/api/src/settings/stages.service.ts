@@ -133,7 +133,7 @@ export class StagesService {
    */
   async remove(userId: number, id: number, replaceWith?: number) {
     return this.prisma.$transaction(async (tx) => {
-      await this.find(tx, userId, id);
+      const removed = await this.find(tx, userId, id);
       await this.assertOpenStageRemains(tx, userId, id);
       const usage = await tx.opportunity.count({ where: { stageId: id } });
       let updated = 0;
@@ -154,10 +154,23 @@ export class StagesService {
         if (!target) {
           throw new BadRequestException('Étape de remplacement introuvable.');
         }
+        const moved = await tx.opportunity.findMany({
+          where: { stageId: id },
+          select: { id: true },
+        });
         ({ count: updated } = await tx.opportunity.updateMany({
           where: { stageId: id },
           data: { stageId: replaceWith },
         }));
+        // Historique des pistes déplacées, avec le libellé de l'étape supprimée.
+        await tx.stageChange.createMany({
+          data: moved.map((o) => ({
+            opportunityId: o.id,
+            fromLabel: removed.label,
+            toLabel: target.label,
+            auto: true,
+          })),
+        });
       }
       await tx.pipelineStage.delete({ where: { id } });
       return { updated };

@@ -16,17 +16,11 @@ import {
   Title,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
-import {
-  IconDots,
-  IconMapPin,
-  IconPencil,
-  IconPlus,
-  IconSearch,
-  IconTrash,
-} from '@tabler/icons-react'
+import { IconDots, IconPencil, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react'
 import { Link, useSearchParams } from 'react-router'
 import { useCompanyMutations } from '../companies.ts'
 import { openCompanyModal } from '../companyModal.tsx'
+import { PlaceLink } from '../components/PlaceLink.tsx'
 import { normalizeSearch } from '../contacts.ts'
 import { useCompanies } from '../queries.ts'
 import { plural } from '../settings.ts'
@@ -50,9 +44,9 @@ function NameCell({ c }: { c: Company }) {
         {c.name}
       </Anchor>
       {c.address && (
-        <Text size="xs" c="dimmed" lineClamp={1} mt={2}>
-          <IconMapPin size={11} style={{ verticalAlign: -1 }} /> {c.address}
-        </Text>
+        <div>
+          <PlaceLink place={c.address} size="xs" />
+        </div>
       )}
       {c.notes && (
         <Text size="xs" c="dimmed" lineClamp={2} mt={2} style={{ whiteSpace: 'pre-wrap' }}>

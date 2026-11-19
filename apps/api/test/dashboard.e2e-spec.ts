@@ -211,6 +211,28 @@ describe('Dashboard (e2e)', () => {
     expect((await dashboard()).kpis.stale).toBe(1);
   });
 
+  it('adresse de départ des itinéraires : enregistrée, nettoyée, effacée', async () => {
+    const me = async () =>
+      (await http().get('/auth/me').expect(200)).body as {
+        staleDays: number;
+        homeAddress: string | null;
+      };
+    const set = (body: Record<string, unknown>) =>
+      http().patch('/settings/preferences').send(body);
+
+    await set({ homeAddress: '  1 place  du Capitole,  Toulouse ' }).expect(
+      204,
+    );
+    // Le délai n'est pas touché quand il est absent.
+    expect(await me()).toMatchObject({
+      staleDays: 14,
+      homeAddress: '1 place du Capitole, Toulouse',
+    });
+    await set({ homeAddress: 'x'.repeat(301) }).expect(400);
+    await set({ homeAddress: '' }).expect(204);
+    expect((await me()).homeAddress).toBeNull();
+  });
+
   it('compte les entretiens en cours (à venir, à planifier, en attente du retour)', async () => {
     const id = (
       (

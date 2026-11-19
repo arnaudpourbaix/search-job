@@ -147,7 +147,21 @@ export type Action = {
   doneAt: string | null
 }
 
+/** Changement d'étape d'une piste (libellés figés au moment du changement). */
+export type StageChange = {
+  id: number
+  /** null : création de la piste. */
+  fromLabel: string | null
+  toLabel: string
+  /** Fait par l'application (premier entretien, étape supprimée). */
+  auto: boolean
+  /** Horodatage ISO. */
+  at: string
+}
+
 export type OpportunityDetail = Omit<OpportunitySummary, 'openActions' | 'interviews'> & {
+  /** Historique des étapes, du plus récent au plus ancien. */
+  stageChanges: StageChange[]
   interviews: InterviewRound[]
   interviewProgress: InterviewProgress | null
   duration: string | null

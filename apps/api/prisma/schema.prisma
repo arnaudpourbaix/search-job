@@ -32,6 +32,8 @@ model User {
   lastLoginAt DateTime?
   /// Nombre de jours sans contact au-delà duquel une piste active est « à relancer ».
   staleDays   Int       @default(14)
+  /// Adresse de départ des itinéraires vers le lieu d'une piste (domicile…).
+  homeAddress String?
 
   sessions      Session[]
   campaigns     Campaign[]
@@ -195,6 +197,7 @@ model Opportunity {
   actions       Action[]
   interviews    Interview[]
   notifications Notification[]
+  stageChanges  StageChange[]
 
   @@index([stageId])
   @@index([companyId])
@@ -322,6 +325,23 @@ model RefList {
   user   User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@unique([userId, category, value])
+}
+
+/// Changement d'étape d'une piste (historique). Les libellés sont figés au moment du
+/// changement : l'historique reste juste si une étape est renommée ou supprimée.
+/// Ce n'est pas un contact : aucun effet sur les relances.
+model StageChange {
+  id        Int      @id @default(autoincrement())
+  fromLabel String? // null : création de la piste
+  toLabel   String
+  /// Fait par l'application (premier entretien, étape supprimée), pas à la main.
+  auto      Boolean  @default(false)
+  createdAt DateTime @default(now())
+
+  opportunityId Int
+  opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)
+
+  @@index([opportunityId, createdAt])
 }
 
 /// Interlocuteurs d'un entretien (plusieurs possibles : RH, manager, lead dev…).

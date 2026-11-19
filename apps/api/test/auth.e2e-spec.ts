@@ -94,6 +94,7 @@ describe('Connexion et cloisonnement (e2e)', () => {
         name: null,
         picture: null,
         staleDays: 14,
+        homeAddress: null,
       });
     });
 

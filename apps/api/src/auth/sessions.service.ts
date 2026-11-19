@@ -53,6 +53,7 @@ export class SessionsService {
             name: true,
             picture: true,
             staleDays: true,
+            homeAddress: true,
           },
         },
       },

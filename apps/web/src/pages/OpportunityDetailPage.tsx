@@ -31,6 +31,7 @@ import {
   IconArrowLeft,
   IconDots,
   IconExternalLink,
+  IconFlag,
   IconHourglass,
   IconMessage,
   IconPencil,
@@ -46,6 +47,7 @@ import { ContactNames } from '../components/ContactNames.tsx'
 import { InteractionForm } from '../components/InteractionForm.tsx'
 import { InterviewsCard } from '../components/InterviewsCard.tsx'
 import { OpportunityModal } from '../components/OpportunityModal.tsx'
+import { PlaceLink } from '../components/PlaceLink.tsx'
 import { ROUND_STATE_INFO, roundState, roundTitle } from '../interviews.ts'
 import {
   daysBetween,
@@ -53,6 +55,7 @@ import {
   formatDay,
   formatPay,
   isClosed,
+  localDay,
   opportunityName,
   opportunityStart,
   today,
@@ -64,7 +67,7 @@ import {
   useUpdateOpportunity,
 } from '../queries.ts'
 import { useStages } from '../settings.ts'
-import type { Interaction, InterviewRound, OpportunityDetail } from '../types.ts'
+import type { Interaction, InterviewRound, OpportunityDetail, StageChange } from '../types.ts'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -120,7 +123,7 @@ function InfoCard({ o }: { o: OpportunityDetail }) {
         <Field label="Durée">{o.duration}</Field>
         {/* Le lieu peut être une adresse complète : toute la largeur. */}
         <Box style={{ gridColumn: '1 / -1' }}>
-          <Field label="Lieu">{o.location}</Field>
+          <Field label="Lieu">{o.location && <PlaceLink place={o.location} />}</Field>
         </Box>
         {/* Rarement renseignée : affichée seulement si elle l'est. */}
         {o.reference && <Field label="Référence de l'annonce">{o.reference}</Field>}
@@ -319,30 +322,65 @@ function RoundEntry({ r }: { r: InterviewRound & { date: string } }) {
   )
 }
 
+type HistoryEntry =
+  | { kind: 'stage'; date: string; change: StageChange }
+  | { kind: 'round'; date: string; round: InterviewRound & { date: string } }
+  | { kind: 'interaction'; date: string; interaction: Interaction }
+
+/** Changement d'étape dans l'historique : discret, ce n'est pas un échange. */
+function StageChangeEntry({ date, change }: { date: string; change: StageChange }) {
+  return (
+    <>
+      <Text size="sm" fw={500}>
+        {formatDay(date)}
+        <Text span c="dimmed" size="sm">
+          {' · '}étape{change.auto && ' · automatique'}
+        </Text>
+      </Text>
+      <Text size="sm" c="dimmed">
+        {change.fromLabel ? (
+          <>
+            {change.fromLabel} →{' '}
+            <Text span inherit fw={600} c="var(--mantine-color-text)">
+              {change.toLabel}
+            </Text>
+          </>
+        ) : (
+          <>
+            Piste créée à l'étape{' '}
+            <Text span inherit fw={600} c="var(--mantine-color-text)">
+              {change.toLabel}
+            </Text>
+          </>
+        )}
+      </Text>
+    </>
+  )
+}
+
 function JournalCard({ o }: { o: OpportunityDetail }) {
   const { addInteraction, updateInteraction, removeInteraction } = useJournal(o.id)
   // Échange en cours de modification, ou 'new' pour la saisie d'un nouvel échange.
   const [editingId, setEditingId] = useState<number | 'new' | null>(null)
 
-  // Échanges du journal et entretiens ayant eu lieu, du plus récent au plus ancien
-  // (à date égale, l'entretien d'abord).
-  const history = [
+  // Échanges du journal, entretiens ayant eu lieu et changements d'étape, du plus
+  // récent au plus ancien. À date égale : étape, puis entretien, puis échange.
+  const rank = { stage: 0, round: 1, interaction: 2 } as const
+  const history: HistoryEntry[] = [
+    ...o.stageChanges.map((change) => ({
+      kind: 'stage' as const,
+      date: localDay(change.at),
+      change,
+    })),
     ...o.interviews
       .filter((r): r is InterviewRound & { date: string } => r.status !== 'PLANNED' && !!r.date)
-      .map((round) => ({ date: round.date, round, interaction: null })),
+      .map((round) => ({ kind: 'round' as const, date: round.date, round })),
     ...o.interactions.map((interaction) => ({
+      kind: 'interaction' as const,
       date: interaction.date,
-      round: null,
       interaction,
     })),
-  ].sort((a, b) => b.date.localeCompare(a.date) || (a.round ? -1 : b.round ? 1 : 0)) as (
-    | {
-        date: string
-        round: InterviewRound & { date: string }
-        interaction: null
-      }
-    | { date: string; round: null; interaction: Interaction }
-  )[]
+  ].sort((a, b) => b.date.localeCompare(a.date) || rank[a.kind] - rank[b.kind])
 
   const confirmRemove = (i: Interaction) =>
     modals.openConfirmModal({
@@ -371,7 +409,8 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
         )}
       </Group>
       <Text size="sm" c="dimmed" mb="sm">
-        Relances, mails, appels… Les entretiens passés s'ajoutent d'eux-mêmes depuis le processus.
+        Relances, mails, appels… Les entretiens passés et les changements d'étape s'ajoutent
+        d'eux-mêmes.
       </Text>
 
       {editingId === 'new' && (
@@ -404,8 +443,22 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
         )
       ) : (
         <Timeline bulletSize={22} lineWidth={2}>
-          {history.map(({ interaction: i, round }) => {
-            if (round) {
+          {history.map((entry) => {
+            if (entry.kind === 'stage') {
+              return (
+                <Timeline.Item
+                  key={`stage-${entry.change.id}`}
+                  bullet={
+                    <ThemeIcon size={22} radius="xl" color="gray" variant="light">
+                      <IconFlag size={12} />
+                    </ThemeIcon>
+                  }
+                  title={<StageChangeEntry date={entry.date} change={entry.change} />}
+                />
+              )
+            }
+            if (entry.kind === 'round') {
+              const { round } = entry
               const info = ROUND_STATE_INFO[roundState(round)]
               const RoundIcon = info.icon
               return (
@@ -420,6 +473,7 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
                 />
               )
             }
+            const i = entry.interaction
             return (
               <Timeline.Item
                 key={i.id}

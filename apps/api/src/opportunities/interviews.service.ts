@@ -6,6 +6,7 @@ import {
 import type { Prisma } from '../generated/prisma/client.js';
 import { StageKind } from '../generated/prisma/enums.js';
 import { assertContacts, linkContacts } from '../common/contacts.js';
+import { recordStageChange } from '../common/stage-history.js';
 import { parseDay } from '../common/dates.js';
 import { assertOpportunity } from '../common/ownership.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -44,6 +45,7 @@ async function advanceToInterviewStage(
     where: { id: opportunityId },
     data: { stageId: target.id },
   });
+  await recordStageChange(tx, opportunityId, stage.id, target.id, true);
 }
 
 /** Tours du processus de recrutement d'une piste. */
