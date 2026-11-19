@@ -1,11 +1,6 @@
 import { PartialType } from '@nestjs/mapped-types';
 import { Transform } from 'class-transformer';
-import {
-  IsNotEmpty,
-  IsOptional,
-  IsString,
-  MaxLength,
-} from 'class-validator';
+import { IsNotEmpty, IsOptional, IsString, MaxLength } from 'class-validator';
 
 /** Chaîne nettoyée ; une chaîne vide devient null (champ effacé). */
 const Trim = () =>
@@ -28,6 +23,12 @@ export class CreateCompanyDto {
   @IsNotEmpty()
   @MaxLength(200)
   name!: string;
+
+  @Trim()
+  @IsOptional()
+  @IsString()
+  @MaxLength(300)
+  address?: string | null;
 
   @NotesTrim()
   @IsOptional()

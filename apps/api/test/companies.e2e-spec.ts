@@ -9,6 +9,7 @@ import { PrismaExceptionFilter } from '../src/common/prisma-exception.filter.js'
 type Company = {
   id: number;
   name: string;
+  address: string | null;
   notes: string | null;
   contacts: { id: number; name: string; title: string | null }[];
   opportunities: { id: number; role: 'CLIENT' | 'INTERMEDIARY' }[];
@@ -56,11 +57,16 @@ describe('Companies (e2e)', () => {
   it('crée une entreprise et refuse un doublon, casse comprise', async () => {
     const res = await http()
       .post('/companies')
-      .send({ name: `  ${name('Acme')}  `, notes: 'Client grands comptes' })
+      .send({
+        name: `  ${name('Acme')}  `,
+        address: '  12 rue de la Paix,   75002 Paris ',
+        notes: 'Client grands comptes',
+      })
       .expect(201);
     expect(res.body).toEqual({
       id: expect.any(Number),
       name: name('Acme'),
+      address: '12 rue de la Paix, 75002 Paris',
       notes: 'Client grands comptes',
       contacts: [],
       opportunities: [],
@@ -116,11 +122,16 @@ describe('Companies (e2e)', () => {
     const renamed = (
       await http()
         .patch('/companies/' + a.id)
-        .send({ name: name('Alpha Conseil'), notes: 'Rappeler en janvier' })
+        .send({
+          name: name('Alpha Conseil'),
+          address: 'Lyon',
+          notes: 'Rappeler en janvier',
+        })
         .expect(200)
     ).body as Company;
     expect(renamed).toMatchObject({
       name: name('Alpha Conseil'),
+      address: 'Lyon',
       notes: 'Rappeler en janvier',
     });
     // Seules les notes changent ; une chaîne vide les efface.
@@ -130,7 +141,11 @@ describe('Companies (e2e)', () => {
         .send({ notes: '' })
         .expect(200)
     ).body as Company;
-    expect(cleared).toMatchObject({ name: name('Alpha Conseil'), notes: null });
+    expect(cleared).toMatchObject({
+      name: name('Alpha Conseil'),
+      address: 'Lyon',
+      notes: null,
+    });
     // Changer la casse de son propre nom reste permis.
     await http()
       .patch('/companies/' + a.id)

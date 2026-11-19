@@ -52,7 +52,7 @@ export class CompaniesService {
   async create(userId: number, dto: CreateCompanyDto) {
     await this.assertUnique(userId, dto.name);
     const { id } = await this.prisma.company.create({
-      data: { userId, name: dto.name, notes: dto.notes },
+      data: { userId, name: dto.name, address: dto.address, notes: dto.notes },
       select: { id: true },
     });
     return this.get(id);
@@ -64,7 +64,11 @@ export class CompaniesService {
     if (dto.name) await this.assertUnique(userId, dto.name, id);
     await this.prisma.company.update({
       where: { id },
-      data: { name: dto.name ?? undefined, notes: dto.notes },
+      data: {
+        name: dto.name ?? undefined,
+        address: dto.address,
+        notes: dto.notes,
+      },
     });
     return this.get(id);
   }
@@ -107,6 +111,7 @@ export class CompaniesService {
     return {
       id: c.id,
       name: c.name,
+      address: c.address,
       notes: c.notes,
       contacts: c.contacts,
       opportunities: [

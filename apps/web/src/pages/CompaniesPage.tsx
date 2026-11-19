@@ -16,7 +16,14 @@ import {
   Title,
 } from '@mantine/core'
 import { modals } from '@mantine/modals'
-import { IconDots, IconPencil, IconPlus, IconSearch, IconTrash } from '@tabler/icons-react'
+import {
+  IconDots,
+  IconMapPin,
+  IconPencil,
+  IconPlus,
+  IconSearch,
+  IconTrash,
+} from '@tabler/icons-react'
 import { Link, useSearchParams } from 'react-router'
 import { useCompanyMutations } from '../companies.ts'
 import { openCompanyModal } from '../companyModal.tsx'
@@ -42,6 +49,11 @@ function NameCell({ c }: { c: Company }) {
       >
         {c.name}
       </Anchor>
+      {c.address && (
+        <Text size="xs" c="dimmed" lineClamp={1} mt={2}>
+          <IconMapPin size={11} style={{ verticalAlign: -1 }} /> {c.address}
+        </Text>
+      )}
       {c.notes && (
         <Text size="xs" c="dimmed" lineClamp={2} mt={2} style={{ whiteSpace: 'pre-wrap' }}>
           {c.notes}
@@ -216,7 +228,7 @@ export function CompaniesPage() {
 
   const q = normalizeSearch(search)
   const companies = (data ?? []).filter(
-    (c) => !q || normalizeSearch(`${c.name} ${c.notes ?? ''}`).includes(q),
+    (c) => !q || normalizeSearch(`${c.name} ${c.address ?? ''} ${c.notes ?? ''}`).includes(q),
   )
 
   return (
@@ -239,7 +251,7 @@ export function CompaniesPage() {
       </Text>
 
       <TextInput
-        placeholder="Rechercher (nom, notes)"
+        placeholder="Rechercher (nom, adresse, notes)"
         leftSection={<IconSearch size={16} />}
         value={search}
         onChange={(e) => setSearch(e.currentTarget.value)}

@@ -124,6 +124,10 @@ export function OpportunityForm({
   const { data: companies = [] } = useCompanies()
   const { data: tags = [] } = useTags()
   const companyNames = companies.map((c) => c.name)
+  /** Adresse d'une entreprise connue, d'après son nom (casse ignorée). */
+  const addressOf = (name: string) =>
+    companies.find((c) => c.name.localeCompare(name.trim(), 'fr', { sensitivity: 'base' }) === 0)
+      ?.address ?? null
 
   const form = useForm<Values>({
     initialValues: initialValues(opportunity, defaultCampaignId, stages[0]?.id),
@@ -139,6 +143,19 @@ export function OpportunityForm({
     },
   })
 
+  const companyInput = form.getInputProps('companyName')
+  /**
+   * Choisir une entreprise qui a une adresse préremplit le lieu, s'il est vide ou
+   * s'il reprenait l'adresse de l'entreprise précédente (un lieu saisi est gardé).
+   */
+  const changeCompany = (name: string) => {
+    const previous = addressOf(form.values.companyName)
+    companyInput.onChange(name)
+    const address = addressOf(name)
+    const location = form.values.location.trim()
+    if (address && (!location || location === previous)) form.setFieldValue('location', address)
+  }
+
   return (
     <form onSubmit={form.onSubmit((v) => onSubmit(toInput(v)))}>
       <Stack>
@@ -148,7 +165,8 @@ export function OpportunityForm({
             description="Là où tu travailleras · vide si encore inconnue"
             data={companyNames}
             data-autofocus
-            {...form.getInputProps('companyName')}
+            {...companyInput}
+            onChange={changeCompany}
           />
           <Select
             label="Étape"
@@ -222,7 +240,11 @@ export function OpportunityForm({
 
         <Divider label="Conditions" labelPosition="left" />
         <SimpleGrid cols={{ base: 2, sm: 3 }}>
-          <TextInput label="Lieu" {...form.getInputProps('location')} />
+          <TextInput
+            label="Lieu"
+            placeholder="Adresse de l'entreprise"
+            {...form.getInputProps('location')}
+          />
           <NumberInput
             label="Télétravail (j/sem)"
             min={0}

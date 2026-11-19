@@ -93,6 +93,8 @@ enum NotificationType {
 model Company {
   id        Int      @id @default(autoincrement())
   name      String
+  /// Adresse ; sert à préremplir le lieu d'une piste chez cette entreprise.
+  address   String?
   notes     String?
   createdAt DateTime @default(now())
 

@@ -39,13 +39,15 @@ export type Contact = ContactRef & {
 
 /** Entreprise : client ou intermédiaire, avec ses contacts et ses pistes. */
 export type Company = Ref & {
+  /** Adresse ; préremplit le lieu des pistes chez cette entreprise. */
+  address: string | null
   notes: string | null
   contacts: { id: number; name: string; title: string | null }[]
   /** Pistes où elle est le client (CLIENT) ou l'intermédiaire (INTERMEDIARY). */
   opportunities: (Contact['opportunities'][number] & { role: 'CLIENT' | 'INTERMEDIARY' })[]
 }
 
-export type CompanyInput = { name: string; notes: string | null }
+export type CompanyInput = { name: string; address: string | null; notes: string | null }
 
 /** Corps envoyé pour créer / modifier un contact (null = effacer). */
 export type ContactInput = {
