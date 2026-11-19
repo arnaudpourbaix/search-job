@@ -97,10 +97,12 @@ la liste des pistes comme sur la fiche, avec une icône d'alerte à côté du de
 Réglable dans **Paramètres → Relances**, de 1 à 90 jours. Il est propre à chaque utilisateur
 et s'applique à toutes ses campagnes.
 
-### Relancer
+### Noter une relance
 
-Le bouton **Relancer** d'une ligne du bloc « À relancer » ouvre la saisie d'un échange
-(date du jour, résumé « Relance » à compléter, canal et interlocuteur facultatifs).
+Le bouton **Noter une relance** d'une ligne du bloc « À relancer » **n'envoie rien** : il sert à
+enregistrer une relance faite par ailleurs (mail, appel, LinkedIn…). Il ouvre la saisie d'un
+échange du journal (date du jour, résumé « Relance » à compléter, canal et interlocuteur
+facultatifs).
 Une fois enregistrée, la relance compte comme un contact : la piste sort de la liste
 jusqu'à ce que le délai soit de nouveau dépassé.
 

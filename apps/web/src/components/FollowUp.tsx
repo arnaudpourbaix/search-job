@@ -118,7 +118,7 @@ function FollowUpForm({ opportunityId, onDone }: { opportunityId: number; onDone
   )
 }
 
-/** Fenêtre « Relancer » : noter l'échange fait sort la piste de « à relancer ». */
+/** Fenêtre « Noter une relance » : l'échange noté sort la piste de « à relancer ». */
 export function FollowUpModal({
   opportunityId,
   name,
@@ -129,9 +129,10 @@ export function FollowUpModal({
   onClose: () => void
 }) {
   return (
-    <Modal opened={opportunityId !== null} onClose={onClose} title={`Relancer · ${name}`}>
+    <Modal opened={opportunityId !== null} onClose={onClose} title={`Noter une relance · ${name}`}>
       <Text size="sm" c="dimmed" mb="sm">
-        Note la relance (mail, appel, message…) : elle compte comme un nouveau contact.
+        Enregistre dans le journal la relance que tu as faite (mail, appel, message…). Rien n'est
+        envoyé : l'échange compte comme un nouveau contact et la piste sort de « À relancer ».
       </Text>
       {opportunityId !== null && <FollowUpForm opportunityId={opportunityId} onDone={onClose} />}
     </Modal>

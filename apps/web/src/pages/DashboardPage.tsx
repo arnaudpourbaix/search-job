@@ -23,7 +23,7 @@ import {
   IconCheck,
   IconClockPause,
   IconMessages,
-  IconSend,
+  IconPencilPlus,
   IconUsersGroup,
   type Icon,
 } from '@tabler/icons-react'
@@ -258,14 +258,22 @@ function StaleList({ items, staleDays }: { items: Dashboard['stale']; staleDays:
               </Text>
             </Box>
             <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
-              <Button
-                size="compact-xs"
-                variant="light"
-                leftSection={<IconSend size={14} />}
-                onClick={() => setRelaunching(opportunity)}
+              <Tooltip
+                label="Enregistre dans le journal la relance que tu as faite (mail, appel…) : la piste sort de la liste. Rien n'est envoyé."
+                multiline
+                w={260}
+                withArrow
+                openDelay={300}
               >
-                Relancer
-              </Button>
+                <Button
+                  size="compact-xs"
+                  variant="light"
+                  leftSection={<IconPencilPlus size={14} />}
+                  onClick={() => setRelaunching(opportunity)}
+                >
+                  Noter une relance
+                </Button>
+              </Tooltip>
               <SnoozeMenu opportunityId={opportunity.id} />
             </Group>
           </Group>
