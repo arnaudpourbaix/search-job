@@ -38,7 +38,7 @@ export function AppLayout() {
           <Group gap="sm" wrap="nowrap">
             <Burger opened={opened} onClick={toggle} hiddenFrom="sm" size="sm" aria-label="Menu" />
             <Title order={4} visibleFrom="xs" style={{ whiteSpace: 'nowrap' }}>
-              Search Job
+              Job Search
             </Title>
           </Group>
           <Group gap="xs" wrap="nowrap">
