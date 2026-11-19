@@ -21,6 +21,7 @@ import {
   ThemeIcon,
   Timeline,
   Title,
+  Tooltip,
 } from '@mantine/core'
 import { DateInput } from '@mantine/dates'
 import { useForm } from '@mantine/form'
@@ -32,6 +33,7 @@ import {
   IconCheck,
   IconDots,
   IconExternalLink,
+  IconHourglass,
   IconMessage,
   IconPencil,
   IconPlus,
@@ -46,7 +48,17 @@ import { ContactSelect } from '../components/ContactPicker.tsx'
 import { InterviewsCard } from '../components/InterviewsCard.tsx'
 import { OpportunityModal } from '../components/OpportunityModal.tsx'
 import { ROUND_STATE_INFO, roundState, roundTitle } from '../interviews.ts'
-import { formatDay, formatPay, isStale, opportunityName, today } from '../format.ts'
+import {
+  daysBetween,
+  formatAge,
+  formatDay,
+  formatPay,
+  isClosed,
+  isStale,
+  opportunityName,
+  opportunityStart,
+  today,
+} from '../format.ts'
 import {
   useDeleteOpportunity,
   useJournal,
@@ -112,13 +124,6 @@ function InfoCard({ o }: { o: OpportunityDetail }) {
             .join(' · ') || null}
         </Field>
         <Field label="Référence de l'annonce">{o.reference}</Field>
-        <Field label="1er contact">{formatDay(o.firstContactAt)}</Field>
-        <Field label="Dernier contact">
-          <Group gap={4}>
-            {formatDay(o.lastContactAt)}
-            {isStale(o) && <StaleIcon />}
-          </Group>
-        </Field>
       </SimpleGrid>
 
       {o.tags.length > 0 && (
@@ -146,6 +151,38 @@ function InfoCard({ o }: { o: OpportunityDetail }) {
         </Text>
       )}
     </Card>
+  )
+}
+
+/**
+ * Âge de la piste, bien visible sous le titre. Une piste close affiche la durée
+ * qu'elle a duré (jusqu'à son dernier contact).
+ */
+function AgeBadge({ o }: { o: OpportunityDetail }) {
+  const start = opportunityStart(o)
+  const closed = isClosed(o.stage)
+  const end = closed && o.lastContactAt && o.lastContactAt > start ? o.lastContactAt : today()
+  const age = formatAge(daysBetween(start, end))
+  const label = closed
+    ? `A duré ${age === "aujourd'hui" ? '1 jour' : age}`
+    : age === "aujourd'hui"
+      ? "Ouverte aujourd'hui"
+      : `Ouverte depuis ${age}`
+  return (
+    <Group gap={6} wrap="nowrap">
+      <Tooltip label={`Piste ouverte le ${formatDay(start)}`}>
+        <Badge
+          size="lg"
+          variant="light"
+          color={closed ? 'gray' : 'blue'}
+          leftSection={<IconHourglass size={14} />}
+          tt="none"
+        >
+          {label}
+        </Badge>
+      </Tooltip>
+      {isStale(o) && <StaleIcon />}
+    </Group>
   )
 }
 
@@ -624,6 +661,9 @@ export function OpportunityDetailPage() {
               .filter(Boolean)
               .join(' · ') || null}
           </Text>
+          <Box mt={6}>
+            <AgeBadge o={o} />
+          </Box>
         </div>
         <Group gap="xs" wrap="nowrap">
           <Select

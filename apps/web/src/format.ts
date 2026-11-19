@@ -57,6 +57,38 @@ export function isStale(o: Pick<OpportunitySummary, 'stage' | 'lastContactAt'>):
   )
 }
 
+/** Jour local (YYYY-MM-DD) d'un horodatage ISO. */
+export function localDay(iso: string): Day {
+  const d = new Date(iso)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  return `${d.getFullYear()}-${pad(d.getMonth() + 1)}-${pad(d.getDate())}`
+}
+
+/** Nombre de jours entre deux dates. */
+export const daysBetween = (from: Day, to: Day) =>
+  Math.round((Date.parse(to) - Date.parse(from)) / 86_400_000)
+
+/** Durée lisible : « 1 jour », « 12 jours », « 1 mois », « 2 mois », « 1 an et 3 mois ». */
+export function formatAge(days: number): string {
+  if (days < 1) return "aujourd'hui"
+  if (days < 30) return days === 1 ? '1 jour' : `${days} jours`
+  const months = (d: number) => Math.min(11, Math.floor(d / 30))
+  if (days < 365) return `${months(days)} mois`
+  const years = Math.floor(days / 365)
+  const rest = months(days % 365)
+  const y = years === 1 ? '1 an' : `${years} ans`
+  return rest ? `${y} et ${rest} mois` : y
+}
+
+/**
+ * Début d'une piste : son premier contact ou sa création, le plus ancien des deux
+ * (les pistes reprises de l'Excel ont été créées après leurs premiers échanges).
+ */
+export function opportunityStart(o: { firstContactAt: Day | null; createdAt: string }): Day {
+  const created = localDay(o.createdAt)
+  return o.firstContactAt && o.firstContactAt < created ? o.firstContactAt : created
+}
+
 const euro = new Intl.NumberFormat('fr-FR', {
   style: 'currency',
   currency: 'EUR',
