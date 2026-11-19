@@ -114,12 +114,16 @@ function InfoCard({ o }: { o: OpportunityDetail }) {
           {[o.contractType, o.platform].filter(Boolean).join(' · ') || null}
         </Field>
         <Field label="Rémunération">{formatPay(o)}</Field>
-        <Field label="Lieu · télétravail · durée">
-          {[o.location, o.remoteDays !== null ? `${o.remoteDays} j/sem` : null, o.duration]
-            .filter(Boolean)
-            .join(' · ') || null}
+        <Field label="Télétravail">
+          {o.remoteDays === null ? null : o.remoteDays === 0 ? 'Aucun' : `${o.remoteDays} j/sem`}
         </Field>
-        <Field label="Référence de l'annonce">{o.reference}</Field>
+        <Field label="Durée">{o.duration}</Field>
+        {/* Le lieu peut être une adresse complète : toute la largeur. */}
+        <Box style={{ gridColumn: '1 / -1' }}>
+          <Field label="Lieu">{o.location}</Field>
+        </Box>
+        {/* Rarement renseignée : affichée seulement si elle l'est. */}
+        {o.reference && <Field label="Référence de l'annonce">{o.reference}</Field>}
       </SimpleGrid>
 
       {o.tags.length > 0 && (
