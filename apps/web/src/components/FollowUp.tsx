@@ -82,7 +82,7 @@ function SnoozedBadge({ o }: { o: Pick<OpportunitySummary, 'id' | 'snoozedUntil'
 export function FollowUpStatus({
   o,
 }: {
-  o: Pick<OpportunitySummary, 'id' | 'stage' | 'lastContactAt' | 'snoozedUntil'>
+  o: Pick<OpportunitySummary, 'id' | 'stage' | 'lastContactAt' | 'nextInterviewAt' | 'snoozedUntil'>
 }) {
   const staleDays = useStaleDays()
   if (isSnoozed(o)) return <SnoozedBadge o={o} />

@@ -30,6 +30,33 @@ export const isHeld = (
 ): r is Round & { date: Date } =>
   r.status !== InterviewStatus.PLANNED && r.date !== null;
 
+/**
+ * Tour à venir : prévu et daté d'aujourd'hui ou plus tard. Tant qu'il y en a un,
+ * la piste n'est pas à relancer.
+ */
+export const upcomingInterviewWhere = (day: Date) =>
+  ({
+    status: InterviewStatus.PLANNED,
+    date: { gte: day },
+  }) satisfies Prisma.InterviewWhereInput;
+
+/** Date du prochain tour à venir (null si aucun). */
+export function nextInterviewDate(
+  rounds: Pick<Round, 'date' | 'status'>[],
+  day: Date,
+): Date | null {
+  let next: Date | null = null;
+  for (const { date, status } of rounds)
+    if (
+      status === InterviewStatus.PLANNED &&
+      date &&
+      date >= day &&
+      (!next || date < next)
+    )
+      next = date;
+  return next;
+}
+
 /** Dernier tour ayant eu lieu (pour la date du dernier contact). */
 export const lastHeldInterviewSelect = {
   where: heldInterviewWhere,

@@ -118,6 +118,8 @@ export type OpportunitySummary = {
   tags: string[]
   firstContactAt: Day | null
   lastContactAt: Day | null
+  /** Prochain entretien prévu (aujourd'hui ou plus tard) : tant qu'il y en a un, pas de relance. */
+  nextInterviewAt: Day | null
   nextAction: NextAction | null
   openActions: number
   /** Processus de recrutement (null : aucun tour). */

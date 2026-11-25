@@ -186,6 +186,45 @@ describe('Dashboard (e2e)', () => {
       .expect(400);
   });
 
+  it('entretien prévu : la piste n’est pas à relancer tant qu’il est à venir', async () => {
+    const [{ opportunity }] = (await dashboard()).stale;
+    const created = (
+      await http()
+        .post(`/opportunities/${opportunity.id}/interviews`)
+        .send({ type: 'Entretien RH', date: inDays(9) })
+        .expect(201)
+    ).body as { interviews: { id: number }[] };
+    const interviewId = created.interviews[0].id;
+    const staleAlert = async () =>
+      (
+        (await http().get('/notifications').expect(200)).body as {
+          items: { type: string; opportunity: { id: number } }[];
+        }
+      ).items.some(
+        (n) =>
+          n.type === 'STALE_OPPORTUNITY' && n.opportunity.id === opportunity.id,
+      );
+    try {
+      const d = await dashboard();
+      expect(d.kpis.stale).toBe(0);
+      expect(d.stale).toEqual([]);
+      expect(await staleAlert()).toBe(false);
+      const detail = (
+        await http().get(`/opportunities/${opportunity.id}`).expect(200)
+      ).body as { nextInterviewAt: string | null };
+      expect(detail.nextInterviewAt).toBe(inDays(9));
+
+      // Date passée sans mise à jour du statut : il ne suspend plus la relance.
+      await http()
+        .patch(`/interviews/${interviewId}`)
+        .send({ date: inDays(-1) })
+        .expect(204);
+      expect((await dashboard()).kpis.stale).toBe(1);
+    } finally {
+      await http().delete(`/interviews/${interviewId}`).expect(204);
+    }
+  });
+
   it('délai de relance réglable par utilisateur', async () => {
     const setDelay = (staleDays: unknown) =>
       http().patch('/settings/preferences').send({ staleDays });

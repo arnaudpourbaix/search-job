@@ -10,7 +10,7 @@ import {
   interviewContactsInclude,
   opportunityContactsInclude,
 } from '../common/contacts.js';
-import { formatDay, parseDay } from '../common/dates.js';
+import { formatDay, parseDay, today } from '../common/dates.js';
 import {
   assertCampaign,
   assertStage,
@@ -20,6 +20,7 @@ import {
   formatRound,
   interviewProgress,
   isHeld,
+  nextInterviewDate,
   interviewSummarySelect,
 } from '../common/interviews.js';
 import {
@@ -89,19 +90,25 @@ function nextAction(
     : null;
 }
 
-/** Premier et dernier contact : échanges du journal et tours ayant eu lieu. */
+/**
+ * Premier et dernier contact (échanges du journal et tours ayant eu lieu), et
+ * prochain entretien prévu (il suspend la relance).
+ */
 function contactDates(
   interactions: { date: Date }[],
   interviews: Parameters<typeof isHeld>[0][],
 ) {
+  const nextInterviewAt = day(nextInterviewDate(interviews, today()));
   const times = [
     ...interactions.map((i) => i.date),
     ...interviews.filter(isHeld).map((r) => r.date),
   ].map((d) => d.getTime());
-  if (!times.length) return { firstContactAt: null, lastContactAt: null };
+  if (!times.length)
+    return { firstContactAt: null, lastContactAt: null, nextInterviewAt };
   return {
     firstContactAt: formatDay(new Date(Math.min(...times))),
     lastContactAt: formatDay(new Date(Math.max(...times))),
+    nextInterviewAt,
   };
 }
 

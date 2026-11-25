@@ -54,16 +54,17 @@ export const isSnoozed = (o: Pick<OpportunitySummary, 'snoozedUntil'>) =>
 
 /**
  * Piste à relancer : active, déjà contactée, dernier contact plus vieux que le délai
- * de relance, et relance non reportée. Même règle que l'API.
+ * de relance, aucun entretien prévu, et relance non reportée. Même règle que l'API.
  */
 export function isStale(
-  o: Pick<OpportunitySummary, 'stage' | 'lastContactAt' | 'snoozedUntil'>,
+  o: Pick<OpportunitySummary, 'stage' | 'lastContactAt' | 'nextInterviewAt' | 'snoozedUntil'>,
   staleDays: number,
 ): boolean {
   return (
     !isClosed(o.stage) &&
     o.lastContactAt !== null &&
     o.lastContactAt < addDays(today(), -staleDays) &&
+    (o.nextInterviewAt === null || o.nextInterviewAt < today()) &&
     !isSnoozed(o)
   )
 }

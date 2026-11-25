@@ -9,6 +9,7 @@ import {
   heldInterviewWhere,
   lastHeldInterviewSelect,
   latestDate,
+  upcomingInterviewWhere,
 } from '../common/interviews.js';
 import { openStageFilter, stageRef } from '../common/stages.js';
 import { PrismaService } from '../prisma/prisma.service.js';
@@ -92,6 +93,9 @@ export class DashboardService {
             take: 1,
           },
           interviews: lastHeldInterviewSelect,
+          _count: {
+            select: { interviews: { where: upcomingInterviewWhere(day) } },
+          },
         },
       }),
       this.prisma.interaction.findMany({
@@ -139,13 +143,14 @@ export class DashboardService {
 
     // Pistes à relancer, la plus ancienne d'abord (relances reportées exclues).
     const stale = activeOpportunities
-      .map(({ interactions, interviews, snoozedUntil, ...o }) => ({
+      .map(({ interactions, interviews, snoozedUntil, _count, ...o }) => ({
         opportunity: o,
         snoozedUntil,
         last: latestDate(interactions, interviews),
+        upcoming: _count.interviews > 0,
       }))
       .filter((s): s is typeof s & { last: Date } =>
-        needsFollowUp(s.last, s.snoozedUntil, day, user.staleDays),
+        needsFollowUp(s.last, s.snoozedUntil, day, user.staleDays, s.upcoming),
       )
       .map(({ opportunity, last }) => ({
         opportunity,

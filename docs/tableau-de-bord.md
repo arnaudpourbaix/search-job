@@ -87,7 +87,11 @@ une relance reste à son étape (« Dossier envoyé », par exemple). Une piste 
 1. elle est active ;
 2. elle a déjà eu au moins un contact : une piste jamais contactée n'est pas à relancer ;
 3. son dernier contact date de plus que le **délai de relance** (14 jours par défaut) ;
-4. sa relance n'est pas **reportée**.
+4. aucun entretien n'est **prévu** (statut « à venir », daté d'aujourd'hui ou plus tard) :
+   la suite est déjà calée, il n'y a personne à relancer. Une fois la date passée, si
+   l'entretien est noté comme ayant eu lieu, il compte comme un contact ; s'il reste
+   « à venir », il ne suspend plus la relance ;
+5. sa relance n'est pas **reportée**.
 
 Elle apparaît alors dans le chiffre et le bloc « À relancer », dans les notifications et, dans
 la liste des pistes comme sur la fiche, avec une icône d'alerte à côté du dernier contact.

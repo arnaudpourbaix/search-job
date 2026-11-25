@@ -8,14 +8,17 @@ export const MAX_STALE_DAYS = 90;
 
 /**
  * Piste active à relancer : elle a déjà eu un contact, le dernier date de plus de
- * `staleDays` jours, et la relance n'est pas reportée au-delà d'aujourd'hui.
+ * `staleDays` jours, aucun entretien n'est prévu (la suite est déjà calée) et la
+ * relance n'est pas reportée au-delà d'aujourd'hui.
  */
 export function needsFollowUp(
   last: Date | null,
   snoozedUntil: Date | null,
   day: Date,
   staleDays: number,
+  upcomingInterview: boolean,
 ): boolean {
-  if (!last || last >= addDays(day, -staleDays)) return false;
+  if (!last || last >= addDays(day, -staleDays) || upcomingInterview)
+    return false;
   return !snoozedUntil || snoozedUntil <= day;
 }
