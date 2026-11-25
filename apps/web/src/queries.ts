@@ -162,8 +162,15 @@ export function useJournal(opportunityId: number) {
       onSuccess: refresh,
     }),
     updateAction: useMutation({
-      mutationFn: ({ id, ...body }: { id: number; done?: boolean; dueDate?: Day | null }) =>
-        api.patch<void>(`/actions/${id}`, body),
+      mutationFn: ({
+        id,
+        ...body
+      }: {
+        id: number
+        label?: string
+        done?: boolean
+        dueDate?: Day | null
+      }) => api.patch<void>(`/actions/${id}`, body),
       onSuccess: reload,
     }),
     removeAction: useMutation({

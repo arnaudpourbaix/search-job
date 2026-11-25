@@ -29,6 +29,7 @@ import { modals } from '@mantine/modals'
 import { notifications } from '@mantine/notifications'
 import {
   IconArrowLeft,
+  IconCheck,
   IconDots,
   IconExternalLink,
   IconFlag,
@@ -37,6 +38,7 @@ import {
   IconPencil,
   IconPlus,
   IconTrash,
+  IconX,
 } from '@tabler/icons-react'
 import { useState, type ReactNode } from 'react'
 import { Link, useNavigate, useParams } from 'react-router'
@@ -67,7 +69,7 @@ import {
   useUpdateOpportunity,
 } from '../queries.ts'
 import { useStages } from '../settings.ts'
-import type { Interaction, InterviewRound, OpportunityDetail, StageChange } from '../types.ts'
+import type { Day, Interaction, InterviewRound, OpportunityDetail, StageChange } from '../types.ts'
 
 function Field({ label, children }: { label: string; children: ReactNode }) {
   return (
@@ -189,8 +191,61 @@ function AgeBadge({ o }: { o: OpportunityDetail }) {
   )
 }
 
+type ActionValues = { label: string; dueDate: Day | null }
+
+/** Modification d'une action : libellé et échéance (ex. retour repoussé). */
+function ActionEditForm({
+  action,
+  loading,
+  onCancel,
+  onSubmit,
+}: {
+  action: OpportunityDetail['actions'][number]
+  loading: boolean
+  onCancel: () => void
+  onSubmit: (v: ActionValues) => void
+}) {
+  const form = useForm<ActionValues>({
+    initialValues: { label: action.label, dueDate: action.dueDate },
+    validate: { label: (v) => (v.trim() ? null : 'Action obligatoire') },
+  })
+  return (
+    <form onSubmit={form.onSubmit((v) => onSubmit({ label: v.label.trim(), dueDate: v.dueDate }))}>
+      <Group gap="xs" align="flex-start">
+        <TextInput
+          aria-label="Action"
+          style={{ flex: '1 1 180px' }}
+          autoFocus
+          {...form.getInputProps('label')}
+        />
+        <DateInput
+          aria-label="Échéance"
+          placeholder="Échéance"
+          valueFormat="DD/MM/YYYY"
+          locale="fr"
+          clearable
+          style={{ flex: '0 1 150px' }}
+          {...form.getInputProps('dueDate')}
+        />
+        <ActionIcon type="submit" size="lg" aria-label="Enregistrer l'action" loading={loading}>
+          <IconCheck size={18} />
+        </ActionIcon>
+        <ActionIcon
+          size="lg"
+          variant="default"
+          aria-label="Annuler la modification"
+          onClick={onCancel}
+        >
+          <IconX size={18} />
+        </ActionIcon>
+      </Group>
+    </form>
+  )
+}
+
 function ActionsCard({ o }: { o: OpportunityDetail }) {
   const { addAction, updateAction, removeAction } = useJournal(o.id)
+  const [editingId, setEditingId] = useState<number | null>(null)
   const form = useForm<{ label: string; dueDate: string | null }>({
     initialValues: { label: '', dueDate: null },
     validate: { label: (v) => (v.trim() ? null : 'Action obligatoire') },
@@ -207,34 +262,56 @@ function ActionsCard({ o }: { o: OpportunityDetail }) {
             Aucune action.
           </Text>
         )}
-        {o.actions.map((a) => (
-          <Group key={a.id} justify="space-between" wrap="nowrap" gap="xs">
-            <Checkbox
-              checked={a.doneAt !== null}
-              onChange={(e) => updateAction.mutate({ id: a.id, done: e.currentTarget.checked })}
-              label={
-                <Text
-                  size="sm"
-                  td={a.doneAt ? 'line-through' : undefined}
-                  c={a.doneAt ? 'dimmed' : undefined}
-                >
-                  {a.label}
-                </Text>
+        {o.actions.map((a) =>
+          editingId === a.id ? (
+            <ActionEditForm
+              key={a.id}
+              action={a}
+              loading={updateAction.isPending}
+              onCancel={() => setEditingId(null)}
+              onSubmit={(v) =>
+                updateAction.mutate({ id: a.id, ...v }, { onSuccess: () => setEditingId(null) })
               }
             />
-            <Group gap={4} wrap="nowrap">
-              {!a.doneAt && <DueBadge dueDate={a.dueDate} />}
-              <ActionIcon
-                variant="subtle"
-                color="gray"
-                aria-label="Supprimer l'action"
-                onClick={() => removeAction.mutate(a.id)}
-              >
-                <IconTrash size={16} />
-              </ActionIcon>
+          ) : (
+            <Group key={a.id} justify="space-between" wrap="nowrap" gap="xs">
+              <Checkbox
+                checked={a.doneAt !== null}
+                onChange={(e) => updateAction.mutate({ id: a.id, done: e.currentTarget.checked })}
+                label={
+                  <Text
+                    size="sm"
+                    td={a.doneAt ? 'line-through' : undefined}
+                    c={a.doneAt ? 'dimmed' : undefined}
+                  >
+                    {a.label}
+                  </Text>
+                }
+              />
+              <Group gap={4} wrap="nowrap">
+                {!a.doneAt && <DueBadge dueDate={a.dueDate} />}
+                {!a.doneAt && (
+                  <ActionIcon
+                    variant="subtle"
+                    color="gray"
+                    aria-label="Modifier l'action"
+                    onClick={() => setEditingId(a.id)}
+                  >
+                    <IconPencil size={16} />
+                  </ActionIcon>
+                )}
+                <ActionIcon
+                  variant="subtle"
+                  color="gray"
+                  aria-label="Supprimer l'action"
+                  onClick={() => removeAction.mutate(a.id)}
+                >
+                  <IconTrash size={16} />
+                </ActionIcon>
+              </Group>
             </Group>
-          </Group>
-        ))}
+          ),
+        )}
       </Stack>
 
       <form
