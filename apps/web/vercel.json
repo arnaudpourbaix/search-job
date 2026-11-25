@@ -3,7 +3,7 @@
   "rewrites": [
     {
       "source": "/api/:path*",
-      "destination": "https://api-tau-indol-24.vercel.app/api/:path*"
+      "destination": "https://api.arnaudpourbaix.fr/api/:path*"
     },
     { "source": "/(.*)", "destination": "/index.html" }
   ],
