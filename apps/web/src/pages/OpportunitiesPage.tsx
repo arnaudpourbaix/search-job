@@ -14,10 +14,18 @@ import {
   Text,
   TextInput,
   Title,
+  Tooltip,
+  UnstyledButton,
 } from '@mantine/core'
 import { useDebouncedValue, useDisclosure, useLocalStorage } from '@mantine/hooks'
-import { IconPlus, IconSearch } from '@tabler/icons-react'
-import { useState } from 'react'
+import {
+  IconChevronDown,
+  IconChevronUp,
+  IconPlus,
+  IconSearch,
+  IconSelector,
+} from '@tabler/icons-react'
+import { useMemo, useState, type ReactNode } from 'react'
 import { Link, useNavigate } from 'react-router'
 import { NextActionCell, StageBadge } from '../components/badges.tsx'
 import { InterviewSteps } from '../components/InterviewSteps.tsx'
@@ -26,11 +34,65 @@ import { ClosedCampaignNotice } from '../components/CampaignSelect.tsx'
 import { OpportunityModal } from '../components/OpportunityModal.tsx'
 import { formatPay, isClosed, rowBackground } from '../format.ts'
 import { useCampaignSelection } from '../campaigns.ts'
+import {
+  DEFAULT_SORT,
+  nextSort,
+  sortOpportunities,
+  type Sort,
+  type SortColumn,
+} from '../opportunitySort.ts'
 import { useOpportunities } from '../queries.ts'
 import { useStages } from '../settings.ts'
 import type { OpportunitySummary } from '../types.ts'
 
-function OpportunityTable({ items, showCampaign }: { items: OpportunitySummary[]; showCampaign: boolean }) {
+/** En-tête cliquable : trie la colonne (décroissant au premier clic, puis change de sens). */
+function SortableTh({
+  column,
+  sort,
+  onSort,
+  help,
+  children,
+}: {
+  column: SortColumn
+  sort: Sort
+  onSort: (sort: Sort) => void
+  help: string
+  children: ReactNode
+}) {
+  const direction = sort.column === column ? sort.direction : null
+  const SortIcon =
+    direction === 'asc' ? IconChevronUp : direction === 'desc' ? IconChevronDown : IconSelector
+  return (
+    <Table.Th
+      aria-sort={
+        direction === 'asc' ? 'ascending' : direction === 'desc' ? 'descending' : undefined
+      }
+    >
+      <Tooltip label={help} multiline w={260} withArrow openDelay={400}>
+        <UnstyledButton onClick={() => onSort(nextSort(sort, column))}>
+          <Group gap={4} wrap="nowrap">
+            <Text fw={700} size="sm">
+              {children}
+            </Text>
+            <SortIcon size={14} color={direction ? undefined : 'var(--mantine-color-dimmed)'} />
+          </Group>
+        </UnstyledButton>
+      </Tooltip>
+    </Table.Th>
+  )
+}
+
+function OpportunityTable({
+  items,
+  showCampaign,
+  sort,
+  onSort,
+}: {
+  items: OpportunitySummary[]
+  showCampaign: boolean
+  sort: Sort
+  onSort: (sort: Sort) => void
+}) {
   const navigate = useNavigate()
   return (
     <Table.ScrollContainer minWidth={900}>
@@ -40,8 +102,22 @@ function OpportunityTable({ items, showCampaign }: { items: OpportunitySummary[]
             <Table.Th>Entreprise</Table.Th>
             <Table.Th>Étape</Table.Th>
             <Table.Th>Poste</Table.Th>
-            <Table.Th>Rémunération</Table.Th>
-            <Table.Th>Dernier contact</Table.Th>
+            <SortableTh
+              column="pay"
+              sort={sort}
+              onSort={onSort}
+              help="Salaires annuels d'abord, puis TJM, chacun par montant (haut de la fourchette). Sans rémunération : en dernier."
+            >
+              Rémunération
+            </SortableTh>
+            <SortableTh
+              column="lastContact"
+              sort={sort}
+              onSort={onSort}
+              help="Par date du dernier échange ou entretien. Jamais contactées : en dernier."
+            >
+              Dernier contact
+            </SortableTh>
             <Table.Th>Prochaine action</Table.Th>
           </Table.Tr>
         </Table.Thead>
@@ -95,7 +171,13 @@ function OpportunityTable({ items, showCampaign }: { items: OpportunitySummary[]
   )
 }
 
-function OpportunityCards({ items, showCampaign }: { items: OpportunitySummary[]; showCampaign: boolean }) {
+function OpportunityCards({
+  items,
+  showCampaign,
+}: {
+  items: OpportunitySummary[]
+  showCampaign: boolean
+}) {
   return (
     <Stack gap="sm">
       {items.map((o) => (
@@ -151,6 +233,13 @@ export function OpportunitiesPage() {
     !campaignsPending,
   )
   const showCampaign = !selected
+  // Tri mémorisé dans le navigateur ; par défaut, dernier contact le plus récent d'abord.
+  const [storedSort, setSort] = useLocalStorage<Sort>({
+    key: 'pistes.sort',
+    defaultValue: DEFAULT_SORT,
+  })
+  const sort = storedSort ?? DEFAULT_SORT
+  const sorted = useMemo(() => (data ? sortOpportunities(data, sort) : []), [data, sort])
 
   return (
     <Stack>
@@ -210,10 +299,15 @@ export function OpportunitiesPage() {
       ) : (
         <>
           <Box visibleFrom="md">
-            <OpportunityTable items={data} showCampaign={showCampaign} />
+            <OpportunityTable
+              items={sorted}
+              showCampaign={showCampaign}
+              sort={sort}
+              onSort={setSort}
+            />
           </Box>
           <Box hiddenFrom="md">
-            <OpportunityCards items={data} showCampaign={showCampaign} />
+            <OpportunityCards items={sorted} showCampaign={showCampaign} />
           </Box>
         </>
       )}
