@@ -296,15 +296,16 @@ describe('Interviews (e2e)', () => {
       .post(`/opportunities/${o}/interactions`)
       .send({ date: inDays(-20), summary: 'Premier contact' })
       .expect(201);
-    // Un tour à venir ne compte pas.
+    expect((await dash()).stale).toEqual([
+      expect.objectContaining({ lastContactAt: inDays(-20) }),
+    ]);
+    // Un tour à venir n'est pas un contact, mais il suspend la relance.
     await http()
       .post(`/opportunities/${o}/interviews`)
       .send({ type: 'Entretien technique', date: inDays(1) })
       .expect(201);
     expect(await lastContact()).toBe(inDays(-20));
-    expect((await dash()).stale).toEqual([
-      expect.objectContaining({ lastContactAt: inDays(-20) }),
-    ]);
+    expect((await dash()).stale).toEqual([]);
 
     await http()
       .post(`/opportunities/${o}/interviews`)
