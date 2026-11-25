@@ -1,14 +1,19 @@
 import { Injectable, Logger, NotFoundException } from '@nestjs/common';
 import { Cron } from '@nestjs/schedule';
 import { NotificationType } from '../generated/prisma/enums.js';
-import { addDays, formatDay, today } from '../common/dates.js';
+import { addDays, formatDay, frenchDay, today } from '../common/dates.js';
 import {
   heldInterviewWhere,
   lastHeldInterviewSelect,
   latestDate,
   upcomingInterviewWhere,
 } from '../common/interviews.js';
-import { needsFollowUp } from '../common/follow-up.js';
+import {
+  contactsOf,
+  followUp,
+  followUpFields,
+  followUpSettingsSelect,
+} from '../common/follow-up.js';
 import { openStageFilter, stageRef } from '../common/stages.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 
@@ -63,18 +68,16 @@ export class NotificationsService {
           OR: [
             { interactions: { some: {} } },
             { interviews: { some: heldInterviewWhere } },
+            { followUpAt: { not: null } },
+            { responseDueAt: { not: null } },
           ],
         },
         select: {
           id: true,
-          snoozedUntil: true,
+          ...followUpFields,
           // Délai de relance propre à chaque utilisateur.
-          user: { select: { staleDays: true } },
-          interactions: {
-            select: { date: true },
-            orderBy: { date: 'desc' },
-            take: 1,
-          },
+          user: { select: followUpSettingsSelect },
+          interactions: { select: { date: true, answered: true } },
           interviews: lastHeldInterviewSelect,
           _count: {
             select: { interviews: { where: upcomingInterviewWhere(day) } },
@@ -102,15 +105,48 @@ export class NotificationsService {
 
     for (const o of opportunities) {
       // Dernier contact : échange du journal ou entretien ayant eu lieu.
-      const last = latestDate(o.interactions, o.interviews)!;
-      const upcoming = o._count.interviews > 0;
-      if (!needsFollowUp(last, o.snoozedUntil, day, o.user.staleDays, upcoming))
+      const contacts = contactsOf(o.interactions, o.interviews);
+      const last = latestDate(contacts);
+      const f = followUp(
+        {
+          ...o,
+          closed: false,
+          contacts,
+          upcomingInterview: o._count.interviews > 0,
+        },
+        day,
+        o.user,
+      );
+      if (f.status === 'NO_RESPONSE') {
+        alerts.push({
+          type: NotificationType.NO_RESPONSE,
+          message:
+            f.reason === 'DEADLINE'
+              ? `Sans réponse au ${frenchDay(f.date!)}, fin du délai annoncé : à clôturer ?`
+              : `Aucune réponse depuis le ${frenchDay(f.date!)} malgré les relances : à clôturer ?`,
+          dedupeKey: `NO_RESPONSE:${o.id}:${f.reason}:${formatDay(f.date!)}`,
+          opportunityId: o.id,
+          actionId: null,
+        });
         continue;
-      const days = Math.round((day.getTime() - last.getTime()) / 86_400_000);
+      }
+      if (f.status !== 'DUE') continue;
+      // Relance prévue à une date précise, ou délai écoulé depuis le dernier contact.
+      if (f.planned) {
+        alerts.push({
+          type: NotificationType.STALE_OPPORTUNITY,
+          message: `Relance prévue le ${frenchDay(f.date!)}`,
+          dedupeKey: `STALE_OPPORTUNITY:${o.id}:prevue:${formatDay(f.date!)}`,
+          opportunityId: o.id,
+          actionId: null,
+        });
+        continue;
+      }
+      const days = Math.round((day.getTime() - last!.getTime()) / 86_400_000);
       alerts.push({
         type: NotificationType.STALE_OPPORTUNITY,
         message: `Aucun échange depuis ${days} jours`,
-        dedupeKey: `STALE_OPPORTUNITY:${o.id}:${formatDay(last)}`,
+        dedupeKey: `STALE_OPPORTUNITY:${o.id}:${formatDay(last!)}`,
         opportunityId: o.id,
         actionId: null,
       });
@@ -183,7 +219,8 @@ export class NotificationsService {
       ACTION_OVERDUE: 0,
       ACTION_DUE_TODAY: 1,
       STALE_OPPORTUNITY: 2,
-      ACTION_UPCOMING: 3,
+      NO_RESPONSE: 3,
+      ACTION_UPCOMING: 4,
     };
     const due = (n: (typeof items)[number]) =>
       n.action?.dueDate?.getTime() ?? 0;

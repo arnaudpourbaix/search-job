@@ -157,6 +157,16 @@ export class CreateOpportunityDto {
   @IsString({ each: true })
   @MaxLength(50, { each: true })
   tags?: string[];
+
+  /** Relance prévue ce jour, à la place du calcul « dernier contact + délai » ; null = calculée. */
+  @IsOptional()
+  @Matches(DAY, { message: `followUpAt ${DAY_MESSAGE}` })
+  followUpAt?: string | null;
+
+  /** Sans réponse à ce jour, la candidature est considérée non retenue ; null = aucun délai. */
+  @IsOptional()
+  @Matches(DAY, { message: `responseDueAt ${DAY_MESSAGE}` })
+  responseDueAt?: string | null;
 }
 
 export class UpdateOpportunityDto extends PartialType(
@@ -225,6 +235,11 @@ export class CreateInteractionDto {
   @IsOptional()
   @IsInt()
   contactId?: number | null;
+
+  /** false : relance restée sans réponse (message laissé…) ; par défaut true. */
+  @IsOptional()
+  @IsBoolean()
+  answered?: boolean;
 }
 
 export class UpdateInteractionDto {
@@ -248,6 +263,10 @@ export class UpdateInteractionDto {
   @IsOptional()
   @IsInt()
   contactId?: number | null;
+
+  @IsOptional()
+  @IsBoolean()
+  answered?: boolean;
 }
 
 export class CreateActionDto {
@@ -337,11 +356,4 @@ export class ReorderInterviewsDto {
   @ArrayMaxSize(100)
   @IsInt({ each: true })
   ids: number[];
-}
-
-/** Report de la relance : jour jusqu'auquel la piste n'est pas « à relancer » ; null = annulé. */
-export class SnoozeDto {
-  @IsOptional()
-  @Matches(DAY, { message: `until ${DAY_MESSAGE}` })
-  until?: string | null;
 }

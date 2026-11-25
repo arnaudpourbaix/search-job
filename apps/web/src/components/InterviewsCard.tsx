@@ -6,7 +6,6 @@ import {
   Card,
   Group,
   Menu,
-  Modal,
   Select,
   Stack,
   Text,
@@ -31,6 +30,7 @@ import {
   IconTrash,
   IconX,
 } from '@tabler/icons-react'
+import { ClosePrompt } from './ClosePrompt.tsx'
 import { useState } from 'react'
 import {
   ROUND_STATE_INFO,
@@ -42,8 +42,7 @@ import {
   type InterviewInput,
 } from '../interviews.ts'
 import { isClosed, today } from '../format.ts'
-import { useRefLists, useUpdateOpportunity } from '../queries.ts'
-import { useStages } from '../settings.ts'
+import { useRefLists } from '../queries.ts'
 import { ContactNames } from './ContactNames.tsx'
 import { ContactsPicker } from './ContactPicker.tsx'
 import type { InterviewRound, InterviewStatus, OpportunityDetail } from '../types.ts'
@@ -245,57 +244,6 @@ function QuickActions({
     )
   }
   return null
-}
-
-/**
- * Après un « non retenu » : propose de clore la piste sur une étape « perdue ».
- * Rien n'est fait d'office : un refus à un entretien n'arrête pas toujours tout.
- */
-function CloseAfterFailurePrompt({
-  o,
-  opened,
-  onClose,
-}: {
-  o: OpportunityDetail
-  opened: boolean
-  onClose: () => void
-}) {
-  const { data: stages } = useStages()
-  const lost = (stages ?? []).filter((s) => s.kind === 'LOST')
-  const [stageId, setStageId] = useState<string | null>(null)
-  const update = useUpdateOpportunity(o.id)
-  const selected = stageId ?? (lost[0] ? String(lost[0].id) : null)
-
-  return (
-    <Modal opened={opened && lost.length > 0} onClose={onClose} title="Clore la piste ?">
-      <Stack gap="sm">
-        <Text size="sm">
-          L'entretien est non retenu. Veux-tu passer la piste à une étape de clôture ? Elle sortira
-          alors des pistes actives, du tableau de bord et des relances.
-        </Text>
-        <Select
-          label="Étape"
-          data={lost.map((s) => ({ value: String(s.id), label: s.label }))}
-          value={selected}
-          onChange={setStageId}
-          allowDeselect={false}
-        />
-        <Group justify="flex-end" gap="xs">
-          <Button variant="default" onClick={onClose}>
-            Garder la piste ouverte
-          </Button>
-          <Button
-            color="red"
-            loading={update.isPending}
-            disabled={!selected}
-            onClick={() => update.mutate({ stageId: Number(selected) }, { onSuccess: onClose })}
-          >
-            Clore la piste
-          </Button>
-        </Group>
-      </Stack>
-    </Modal>
-  )
 }
 
 /** Type proposé pour le tour suivant : celui qui suit le dernier tour dans la liste des types. */
@@ -527,7 +475,14 @@ export function InterviewsCard({ o }: { o: OpportunityDetail }) {
           />
         </Card>
       )}
-      <CloseAfterFailurePrompt o={o} opened={proposeClose} onClose={() => setProposeClose(false)} />
+      <ClosePrompt
+        opportunityId={o.id}
+        prefer="Refusé"
+        opened={proposeClose}
+        onClose={() => setProposeClose(false)}
+      >
+        L'entretien est non retenu.
+      </ClosePrompt>
     </Card>
   )
 }

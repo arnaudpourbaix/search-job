@@ -58,6 +58,7 @@ export class JournalService {
           date: parseDay(dto.date),
           channel: dto.channel ?? null,
           summary: dto.summary,
+          answered: dto.answered ?? true,
           contactId,
         },
       });
@@ -81,6 +82,7 @@ export class JournalService {
           date: dto.date === undefined ? undefined : parseDay(dto.date),
           channel: dto.channel,
           summary: dto.summary,
+          answered: dto.answered,
           contactId: dto.contactId,
         },
       });

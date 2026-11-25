@@ -18,13 +18,13 @@ ancien :
 
 | Entrée | Origine | Compte comme contact |
 | --- | --- | --- |
-| **Échange** | Saisi à la main (« Ajouter un échange », ou « Noter une relance » depuis le tableau de bord) | Oui |
+| **Échange** | Saisi à la main (« Ajouter un échange », ou « Noter une relance » depuis le tableau de bord). Coché « Sans réponse », il est marqué comme tel : relance faite, pas réponse | Oui |
 | **Entretien** | Ajouté d'office quand un entretien du processus a eu lieu (daté et plus « à venir ») | Oui |
 | **Étape** | Ajouté d'office à chaque changement d'étape | **Non** |
 
-Un contact remet à zéro le compteur de relance (voir
-[Tableau de bord](tableau-de-bord.md#relances)) ; un changement d'étape, non : changer
-d'étape sans avoir parlé à personne ne fait pas sortir une piste de « À relancer ».
+Un contact repousse la relance (voir [Tableau de bord](tableau-de-bord.md#relances)) et rend
+caduque la date de relance saisie avant lui ; seule une réponse annule le délai de réponse ; un changement d'étape,
+non : changer d'étape sans avoir parlé à personne ne fait pas sortir une piste de « À relancer ».
 
 À date égale, l'ordre est : étape, entretien, échange.
 
@@ -34,7 +34,8 @@ Sont tracés :
 
 - la **création** de la piste (« Piste créée à l'étape … ») ;
 - chaque changement fait **à la main** : menu d'étape de la fiche, formulaire de la piste,
-  glisser-déposer dans le pipeline, clôture proposée après un entretien « non retenu » ;
+  glisser-déposer dans le pipeline, clôture proposée après un entretien « non retenu » ou une
+  candidature restée sans réponse ;
 - les changements faits **par l'application**, marqués « automatique » : passage à l'étape des
   entretiens au premier entretien (voir [Entretiens](entretiens.md#étape-de-la-piste)),
   bascule des pistes d'une étape supprimée vers l'étape de remplacement.

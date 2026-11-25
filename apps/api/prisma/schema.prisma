@@ -32,6 +32,8 @@ model User {
   lastLoginAt DateTime?
   /// Nombre de jours sans contact au-delà duquel une piste active est « à relancer ».
   staleDays   Int       @default(14)
+  /// Jours sans réponse, malgré au moins une relance, avant de proposer la clôture.
+  silenceDays Int       @default(30)
   /// Adresse de départ des itinéraires vers le lieu d'une piste (domicile…).
   homeAddress String?
 
@@ -88,6 +90,7 @@ enum NotificationType {
   ACTION_DUE_TODAY // Action prévue aujourd'hui
   ACTION_UPCOMING // Action dans les 7 prochains jours
   STALE_OPPORTUNITY // Piste active sans contact depuis le délai de relance (14 jours par défaut)
+  NO_RESPONSE // Délai de réponse dépassé sans nouvelles : clôture proposée
 }
 
 /// Société : entreprise où l'on travaille, ou intermédiaire (apporteur d'affaires,
@@ -164,8 +167,15 @@ model Opportunity {
   tjmMax       Int? // €/jour (freelance)
   url          String?
   notes        String?
-  /// Relance reportée : la piste n'est pas « à relancer » avant ce jour (minuit UTC).
-  snoozedUntil DateTime?
+  /// Relance prévue ce jour (minuit UTC), à la place du calcul « dernier contact + délai ».
+  /// Ignorée dès qu'un contact a lieu après sa saisie (followUpSetOn).
+  followUpAt       DateTime?
+  followUpSetOn    DateTime?
+  /// Sans réponse à ce jour (minuit UTC), la candidature est considérée non retenue :
+  /// pas de relance d'ici là, puis clôture proposée. Ignoré dès qu'un contact a lieu
+  /// après sa saisie (responseDueSetOn).
+  responseDueAt    DateTime?
+  responseDueSetOn DateTime?
   createdAt    DateTime @default(now())
   updatedAt    DateTime @updatedAt
 
@@ -242,6 +252,9 @@ model Interaction {
   date    DateTime
   channel String? // Valeur de RefList « CHANNEL »
   summary String
+  /// false : relance restée sans réponse (message laissé, mail sans retour). Elle compte
+  /// comme relance faite, mais pas comme réponse (délai de réponse, silence prolongé).
+  answered Boolean @default(true)
 
   opportunityId Int
   opportunity   Opportunity @relation(fields: [opportunityId], references: [id], onDelete: Cascade)

@@ -35,12 +35,18 @@ import { api } from '../api.ts'
 import { useCampaignSelection } from '../campaigns.ts'
 import { DueBadge } from '../components/badges.tsx'
 import { ClosedCampaignNotice } from '../components/CampaignSelect.tsx'
-import { FollowUpModal, SnoozeMenu } from '../components/FollowUp.tsx'
+import {
+  CloseNoResponseButton,
+  FollowUpModal,
+  SnoozeMenu,
+  StillWaitingMenu,
+} from '../components/FollowUp.tsx'
 import { formatDay, isClosed, opportunityName, opportunitySubtitle, today } from '../format.ts'
 import { ContactNames } from '../components/ContactNames.tsx'
 import { ROUND_STATE_INFO, roundState, roundTitle, roundWhen } from '../interviews.ts'
+import { noResponseText } from '../followUp.ts'
 import { useNotificationMutations } from '../notifications.ts'
-import type { Day, InterviewRound, OpportunitySummary, Stage } from '../types.ts'
+import type { Day, InterviewRound, NoResponseReason, OpportunitySummary, Stage } from '../types.ts'
 
 type OpportunityRef = Pick<
   OpportunitySummary,
@@ -57,6 +63,8 @@ type Dashboard = {
     overdue: number
     dueToday: number
     stale: number
+    /** Délai de réponse dépassé sans nouvelles : clôture proposée. */
+    noResponse: number
     interviews: number
     contactsLastWeek: number
     upcomingInterviews: number
@@ -65,7 +73,20 @@ type Dashboard = {
   }
   interviews: Record<'upcoming' | 'toSchedule' | 'awaiting', DashboardRound[]>
   todo: { id: number; label: string; dueDate: Day; opportunity: OpportunityRef }[]
-  stale: { opportunity: OpportunityRef; lastContactAt: Day }[]
+  stale: {
+    opportunity: OpportunityRef
+    lastContactAt: Day | null
+    /** Date de relance : saisie sur la piste, ou dernier contact + délai. */
+    followUpAt: Day
+    planned: boolean
+  }[]
+  noResponse: {
+    opportunity: OpportunityRef
+    lastContactAt: Day | null
+    reason: NoResponseReason
+    /** Fin du délai annoncé (DEADLINE), ou dernière réponse (SILENCE). */
+    date: Day
+  }[]
   recent: {
     id: number
     date: Day
@@ -245,17 +266,23 @@ function TodoList({ items }: { items: Dashboard['todo'] }) {
 function StaleList({ items, staleDays }: { items: Dashboard['stale']; staleDays: number }) {
   const [relaunching, setRelaunching] = useState<OpportunityRef | null>(null)
   if (!items.length) {
-    return <Empty>Aucune piste active sans échange depuis plus de {staleDays} jours.</Empty>
+    return (
+      <Empty>
+        Aucune relance à faire (délai par défaut : {staleDays} jours après le dernier contact).
+      </Empty>
+    )
   }
   return (
     <>
       <Stack gap="sm">
-        {items.map(({ opportunity, lastContactAt }) => (
+        {items.map(({ opportunity, lastContactAt, followUpAt, planned }) => (
           <Group key={opportunity.id} justify="space-between" wrap="wrap" gap="xs">
             <Box miw={0} style={{ flex: '1 1 180px' }}>
               <OpportunityLink o={opportunity} />
               <Text size="xs" c="red.8">
-                Dernier contact il y a {daysSince(lastContactAt)} jours
+                {planned || !lastContactAt
+                  ? `Relance prévue le ${formatDay(followUpAt)}`
+                  : `Dernier contact il y a ${daysSince(lastContactAt)} jours`}
               </Text>
             </Box>
             <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
@@ -275,7 +302,7 @@ function StaleList({ items, staleDays }: { items: Dashboard['stale']; staleDays:
                   Noter une relance
                 </Button>
               </Tooltip>
-              <SnoozeMenu opportunityId={opportunity.id} />
+              <SnoozeMenu opportunityId={opportunity.id} planned={planned} />
             </Group>
           </Group>
         ))}
@@ -286,6 +313,28 @@ function StaleList({ items, staleDays }: { items: Dashboard['stale']; staleDays:
         onClose={() => setRelaunching(null)}
       />
     </>
+  )
+}
+
+/** Candidatures restées sans réponse au-delà du délai annoncé : clôture proposée. */
+function NoResponseList({ items }: { items: Dashboard['noResponse'] }) {
+  return (
+    <Stack gap="sm">
+      {items.map(({ opportunity, reason, date }) => (
+        <Group key={opportunity.id} justify="space-between" wrap="wrap" gap="xs">
+          <Box miw={0} style={{ flex: '1 1 180px' }}>
+            <OpportunityLink o={opportunity} />
+            <Text size="xs" c="orange.8">
+              {noResponseText(reason, date)}
+            </Text>
+          </Box>
+          <Group gap={4} wrap="nowrap" style={{ flexShrink: 0 }}>
+            <CloseNoResponseButton opportunityId={opportunity.id} reason={reason} date={date} />
+            <StillWaitingMenu opportunityId={opportunity.id} reason={reason} />
+          </Group>
+        </Group>
+      ))}
+    </Stack>
   )
 }
 
@@ -475,7 +524,7 @@ export function DashboardPage() {
             <Kpi
               value={data.kpis.stale}
               label="à relancer"
-              help={`Pistes actives sans échange ni entretien depuis plus de ${data.staleDays} jours (délai réglable dans les paramètres), hors relances reportées.`}
+              help={`Pistes actives dont la date de relance est atteinte : celle fixée sur la piste, sinon ${data.staleDays} jours après le dernier échange ou entretien (délai réglable dans les paramètres). Pas de relance tant qu'un entretien est prévu ou qu'une réponse est attendue.`}
               icon={IconClockPause}
               color="gray"
               section="a-relancer"
@@ -505,6 +554,11 @@ export function DashboardPage() {
               <Section id="a-faire" title="À faire" count={data.todo.length}>
                 <TodoList items={data.todo} />
               </Section>
+              {data.noResponse.length > 0 && (
+                <Section id="sans-reponse" title="Sans réponse" count={data.noResponse.length}>
+                  <NoResponseList items={data.noResponse} />
+                </Section>
+              )}
               <Section id="a-relancer" title="À relancer" count={data.stale.length}>
                 <StaleList items={data.stale} staleDays={data.staleDays} />
               </Section>

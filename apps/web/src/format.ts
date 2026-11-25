@@ -7,6 +7,8 @@ export const isClosed = (stage: Pick<Stage, 'kind'>) => CLOSED_KINDS.includes(st
 
 /** Délai de relance par défaut (réglable dans les paramètres). */
 export const DEFAULT_STALE_DAYS = 14
+/** Silence par défaut : jours sans réponse, malgré des relances, avant de proposer la clôture. */
+export const DEFAULT_SILENCE_DAYS = 30
 
 /** Date du jour (locale) au format YYYY-MM-DD. */
 export function today(): Day {
@@ -48,26 +50,8 @@ export const DUE_COLORS: Record<DueStatus, string> = {
   none: 'gray',
 }
 
-/** Relance reportée à une date future. */
-export const isSnoozed = (o: Pick<OpportunitySummary, 'snoozedUntil'>) =>
-  o.snoozedUntil !== null && o.snoozedUntil > today()
-
-/**
- * Piste à relancer : active, déjà contactée, dernier contact plus vieux que le délai
- * de relance, aucun entretien prévu, et relance non reportée. Même règle que l'API.
- */
-export function isStale(
-  o: Pick<OpportunitySummary, 'stage' | 'lastContactAt' | 'nextInterviewAt' | 'snoozedUntil'>,
-  staleDays: number,
-): boolean {
-  return (
-    !isClosed(o.stage) &&
-    o.lastContactAt !== null &&
-    o.lastContactAt < addDays(today(), -staleDays) &&
-    (o.nextInterviewAt === null || o.nextInterviewAt < today()) &&
-    !isSnoozed(o)
-  )
-}
+/** Piste à relancer (règle calculée par l'API). */
+export const isStale = (o: Pick<OpportunitySummary, 'followUp'>) => o.followUp.status === 'DUE'
 
 /** Jour local (YYYY-MM-DD) d'un horodatage ISO. */
 export function localDay(iso: string): Day {

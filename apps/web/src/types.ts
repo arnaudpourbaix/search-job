@@ -118,6 +118,8 @@ export type OpportunitySummary = {
   tags: string[]
   firstContactAt: Day | null
   lastContactAt: Day | null
+  /** Dernière réponse obtenue (échange répondu ou entretien ayant eu lieu). */
+  lastReplyAt: Day | null
   /** Prochain entretien prévu (aujourd'hui ou plus tard) : tant qu'il y en a un, pas de relance. */
   nextInterviewAt: Day | null
   nextAction: NextAction | null
@@ -128,8 +130,12 @@ export type OpportunitySummary = {
   campaign: { id: number; name: string; endDate: Day | null }
   /** Même entreprise proposée sur plusieurs pistes de la campagne. */
   duplicateCompany: boolean
-  /** Relance reportée : pas « à relancer » avant ce jour (null : pas de report). */
-  snoozedUntil: Day | null
+  /** Relance prévue saisie sur la piste (null : calculée, dernier contact + délai). */
+  followUpAt: Day | null
+  /** Sans réponse à ce jour, la candidature est considérée non retenue (null : aucun délai). */
+  responseDueAt: Day | null
+  /** Où en est la relance, calculée par l'API. */
+  followUp: FollowUp
   updatedAt: string
 }
 
@@ -138,6 +144,8 @@ export type Interaction = {
   date: Day
   channel: string | null
   summary: string
+  /** false : relance restée sans réponse (message laissé, mail sans retour). */
+  answered: boolean
   /** Interlocuteur de l'échange. */
   contact: ContactRef | null
 }
@@ -175,6 +183,28 @@ export type OpportunityDetail = Omit<OpportunitySummary, 'openActions' | 'interv
 }
 
 /** Corps envoyé pour créer / modifier une piste (null = effacer). */
+/**
+ * État de la relance d'une piste :
+ * - NONE : rien à suivre (piste close, ou jamais contactée sans date prévue) ;
+ * - INTERVIEW : un entretien est prévu, pas de relance ;
+ * - AWAITING : réponse attendue jusqu'à `date`, pas de relance d'ici là ;
+ * - NO_RESPONSE : sans réponse, clôture proposée (`reason` : délai annoncé dépassé le
+ *   `date`, ou silence depuis la dernière réponse du `date` malgré les relances) ;
+ * - PLANNED : relance prévue le `date` ;
+ * - DUE : à relancer depuis le `date`.
+ */
+export type FollowUpStatus = 'NONE' | 'INTERVIEW' | 'AWAITING' | 'NO_RESPONSE' | 'PLANNED' | 'DUE'
+
+export type FollowUp = {
+  status: FollowUpStatus
+  date: Day | null
+  /** La date de relance a été saisie (sinon : dernier contact + délai). */
+  planned: boolean
+  reason: NoResponseReason | null
+}
+
+export type NoResponseReason = 'DEADLINE' | 'SILENCE'
+
 export type OpportunityInput = {
   reference: string | null
   title: string | null
@@ -198,6 +228,10 @@ export type OpportunityInput = {
   /** Liste complète des contacts de la piste (identifiants du carnet). */
   contactIds: number[]
   tags: string[]
+  /** Relance prévue ; null = calculée ; absent = inchangée. */
+  followUpAt?: Day | null
+  /** Date au-delà de laquelle, sans réponse, la candidature est non retenue ; absent = inchangée. */
+  responseDueAt?: Day | null
 }
 
 export type RefLists = {

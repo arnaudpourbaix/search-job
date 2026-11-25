@@ -3,17 +3,17 @@ import { api } from './api.ts'
 import type { Day, OpportunitySummary } from './types.ts'
 
 export type NotificationType =
-  | 'ACTION_OVERDUE'
-  | 'ACTION_DUE_TODAY'
-  | 'ACTION_UPCOMING'
-  | 'STALE_OPPORTUNITY'
+  'ACTION_OVERDUE' | 'ACTION_DUE_TODAY' | 'ACTION_UPCOMING' | 'STALE_OPPORTUNITY' | 'NO_RESPONSE'
 
 export type AppNotification = {
   id: number
   type: NotificationType
   message: string
   read: boolean
-  opportunity: Pick<OpportunitySummary, 'id' | 'reference' | 'title' | 'stage' | 'company' | 'intermediary'>
+  opportunity: Pick<
+    OpportunitySummary,
+    'id' | 'reference' | 'title' | 'stage' | 'company' | 'intermediary'
+  >
   action: { id: number; label: string; dueDate: Day | null } | null
 }
 

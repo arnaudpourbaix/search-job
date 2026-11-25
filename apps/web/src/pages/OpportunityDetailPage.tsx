@@ -566,6 +566,11 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
                             {i.channel}
                           </Text>
                         )}
+                        {!i.answered && (
+                          <Badge ml={6} size="xs" variant="light" color="orange" tt="none">
+                            sans réponse
+                          </Badge>
+                        )}
                       </Text>
                       <Group gap={2} wrap="nowrap">
                         <ActionIcon
@@ -599,6 +604,7 @@ function JournalCard({ o }: { o: OpportunityDetail }) {
                       channel: i.channel,
                       summary: i.summary,
                       contactId: i.contact?.id ?? null,
+                      answered: i.answered,
                     }}
                     submitLabel="Enregistrer"
                     loading={updateInteraction.isPending}

@@ -13,6 +13,8 @@ export type AuthUser = {
   picture: string | null;
   /** Délai de relance (jours sans contact). */
   staleDays: number;
+  /** Jours sans réponse, malgré des relances, avant de proposer la clôture. */
+  silenceDays: number;
   /** Adresse de départ des itinéraires (null : non renseignée). */
   homeAddress: string | null;
 };

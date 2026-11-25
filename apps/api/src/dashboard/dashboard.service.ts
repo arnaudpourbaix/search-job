@@ -3,7 +3,12 @@ import { Prisma } from '../generated/prisma/client.js';
 import { InterviewStatus, StageKind } from '../generated/prisma/enums.js';
 import { addDays, formatDay, today } from '../common/dates.js';
 import { UPCOMING_DAYS } from '../notifications/notifications.service.js';
-import { needsFollowUp } from '../common/follow-up.js';
+import {
+  contactsOf,
+  followUp,
+  followUpFields,
+  followUpSettingsSelect,
+} from '../common/follow-up.js';
 import { interviewContactsInclude } from '../common/contacts.js';
 import {
   heldInterviewWhere,
@@ -55,7 +60,7 @@ export class DashboardService {
     ] = await Promise.all([
       this.prisma.user.findUniqueOrThrow({
         where: { id: userId },
-        select: { staleDays: true },
+        select: followUpSettingsSelect,
       }),
       this.prisma.pipelineStage.findMany({
         ...stageRef,
@@ -86,12 +91,9 @@ export class DashboardService {
         where: active,
         select: {
           ...opportunityRef.select,
-          snoozedUntil: true,
-          interactions: {
-            select: { date: true },
-            orderBy: { date: 'desc' },
-            take: 1,
-          },
+          ...followUpFields,
+          // Tous les échanges : réponses et relances sans réponse comptent différemment.
+          interactions: { select: { date: true, answered: true } },
           interviews: lastHeldInterviewSelect,
           _count: {
             select: { interviews: { where: upcomingInterviewWhere(day) } },
@@ -141,22 +143,63 @@ export class DashboardService {
       }),
     ]);
 
-    // Pistes à relancer, la plus ancienne d'abord (relances reportées exclues).
-    const stale = activeOpportunities
-      .map(({ interactions, interviews, snoozedUntil, _count, ...o }) => ({
-        opportunity: o,
-        snoozedUntil,
-        last: latestDate(interactions, interviews),
-        upcoming: _count.interviews > 0,
-      }))
-      .filter((s): s is typeof s & { last: Date } =>
-        needsFollowUp(s.last, s.snoozedUntil, day, user.staleDays, s.upcoming),
-      )
-      .map(({ opportunity, last }) => ({
+    // Relance de chaque piste active.
+    const followUps = activeOpportunities.map(
+      ({
+        interactions,
+        interviews,
+        _count,
+        followUpAt,
+        followUpSetOn,
+        responseDueAt,
+        responseDueSetOn,
+        ...o
+      }) => {
+        const contacts = contactsOf(interactions, interviews);
+        const last = latestDate(contacts);
+        const f = followUp(
+          {
+            closed: false,
+            contacts,
+            upcomingInterview: _count.interviews > 0,
+            followUpAt,
+            followUpSetOn,
+            responseDueAt,
+            responseDueSetOn,
+          },
+          day,
+          user,
+        );
+        return {
+          opportunity: o,
+          lastContactAt: last && formatDay(last),
+          status: f.status,
+          date: f.date && formatDay(f.date),
+          planned: f.planned,
+          reason: f.reason,
+        };
+      },
+    );
+    // À relancer, la relance la plus ancienne d'abord.
+    const stale = followUps
+      .filter((f) => f.status === 'DUE')
+      .map(({ opportunity, lastContactAt, date, planned }) => ({
         opportunity,
-        lastContactAt: formatDay(last),
+        lastContactAt,
+        followUpAt: date!,
+        planned,
       }))
-      .sort((a, b) => a.lastContactAt.localeCompare(b.lastContactAt));
+      .sort((a, b) => a.followUpAt.localeCompare(b.followUpAt));
+    // Sans réponse (délai annoncé dépassé, ou long silence) : clôture proposée.
+    const noResponse = followUps
+      .filter((f) => f.status === 'NO_RESPONSE')
+      .map(({ opportunity, lastContactAt, date, reason }) => ({
+        opportunity,
+        lastContactAt,
+        reason: reason!,
+        date: date!,
+      }))
+      .sort((a, b) => a.date.localeCompare(b.date));
 
     // Pistes par étape, dans l'ordre du pipeline.
     const byStage = stages.map((s) => ({
@@ -194,6 +237,7 @@ export class DashboardService {
         overdue: todo.filter((a) => a.dueDate < todayKey).length,
         dueToday: todo.filter((a) => a.dueDate === todayKey).length,
         stale: stale.length,
+        noResponse: noResponse.length,
         interviews: byStage
           .filter((s) => s.kind === StageKind.ADVANCED)
           .reduce((n, s) => n + s.count, 0),
@@ -207,6 +251,7 @@ export class DashboardService {
       interviews,
       todo,
       stale,
+      noResponse,
       recent: recent.map((i) => ({ ...i, date: formatDay(i.date) })),
     };
   }

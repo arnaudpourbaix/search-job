@@ -23,6 +23,7 @@ import {
   IconCalendarEvent,
   IconCheck,
   IconClockPause,
+  IconHourglassOff,
   IconMail,
   IconMailOpened,
   type Icon,
@@ -41,6 +42,7 @@ const TYPE_INFO: Record<NotificationType, { icon: Icon; color: string; label: st
   ACTION_DUE_TODAY: { icon: IconCalendarDue, color: 'orange', label: "Aujourd'hui" },
   ACTION_UPCOMING: { icon: IconCalendarEvent, color: 'yellow', label: 'À venir' },
   STALE_OPPORTUNITY: { icon: IconClockPause, color: 'gray', label: 'À relancer' },
+  NO_RESPONSE: { icon: IconHourglassOff, color: 'orange', label: 'Sans réponse' },
 }
 
 function when(n: AppNotification): string {

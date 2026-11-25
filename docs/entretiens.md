@@ -59,7 +59,7 @@ Le processus détaille une piste ; l'**étape** la situe dans le pipeline (colon
   [Pistes](pistes.md#changements-détape)). La piste ne recule jamais : si elle est déjà à une étape avancée (une
   proposition, par exemple), ou gagnée ou perdue, son étape ne change pas.
 - **Entretien non retenu** : l'application **propose** de clore la piste sur une étape de
-  nature « Perdue » (« Refusé », « Abandonné »…), au choix. Rien n'est fait d'office : on peut
+  nature « Perdue » (« Refusé » présélectionné, « Sans suite », « Abandonné »…), au choix. Rien n'est fait d'office : on peut
   garder la piste ouverte, par exemple si un autre poste reste possible chez le même client.
   La proposition n'apparaît pas si la piste est déjà gagnée ou perdue.
 

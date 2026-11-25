@@ -21,3 +21,8 @@ export function today(now = new Date()): Date {
 export function addDays(date: Date, days: number): Date {
   return new Date(date.getTime() + days * 86_400_000);
 }
+
+/** Jour au format français (JJ/MM/AAAA), pour les messages. */
+export function frenchDay(date: Date): string {
+  return formatDay(date).split('-').reverse().join('/');
+}

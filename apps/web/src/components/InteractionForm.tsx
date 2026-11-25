@@ -1,4 +1,4 @@
-import { Button, Group, Select, Stack, Textarea } from '@mantine/core'
+import { Button, Checkbox, Group, Select, Stack, Textarea } from '@mantine/core'
 import { DateInput } from '@mantine/dates'
 import { useForm } from '@mantine/form'
 import { IconCheck } from '@tabler/icons-react'
@@ -12,6 +12,8 @@ export type InteractionValues = {
   channel: string | null
   summary: string
   contactId: number | null
+  /** false : relance restée sans réponse ; par défaut, échange répondu. */
+  answered?: boolean
 }
 
 /** Formulaire d'échange, pour l'ajout comme pour la modification. */
@@ -32,7 +34,7 @@ export function InteractionForm({
 }) {
   const { data: lists } = useRefLists()
   const form = useForm<InteractionValues>({
-    initialValues: initial,
+    initialValues: { ...initial, answered: initial.answered ?? true },
     validate: {
       date: (v) => (v ? null : 'Date obligatoire'),
       summary: (v) => (v.trim() ? null : 'Résumé obligatoire'),
@@ -47,6 +49,7 @@ export function InteractionForm({
           channel: v.channel,
           summary: v.summary.trim(),
           contactId: v.contactId,
+          answered: v.answered ?? true,
         }),
       )}
     >
@@ -80,6 +83,13 @@ export function InteractionForm({
           minRows={2}
           data-autofocus={onCancel ? true : undefined}
           {...form.getInputProps('summary')}
+        />
+        <Checkbox
+          size="xs"
+          label="Sans réponse (message laissé, mail sans retour…)"
+          description="Compte comme relance faite, pas comme réponse : le délai de réponse continue de courir."
+          checked={!form.values.answered}
+          onChange={(e) => form.setFieldValue('answered', !e.currentTarget.checked)}
         />
         <Group justify="flex-end" gap="xs">
           {onCancel && (

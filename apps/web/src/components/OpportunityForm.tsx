@@ -1,6 +1,7 @@
 import {
   Autocomplete,
   Button,
+  Chip,
   Divider,
   Group,
   NumberInput,
@@ -8,15 +9,19 @@ import {
   SimpleGrid,
   Stack,
   TagsInput,
+  Text,
   Textarea,
   TextInput,
 } from '@mantine/core'
+import { DateInput } from '@mantine/dates'
 import { useForm } from '@mantine/form'
 import { useCampaigns } from '../campaigns.ts'
 import { ContactsPicker } from './ContactPicker.tsx'
 import { useCompanies, useRefLists, useTags } from '../queries.ts'
 import { useStages } from '../settings.ts'
-import type { OpportunityDetail, OpportunityInput } from '../types.ts'
+import { addDays, formatDay, today } from '../format.ts'
+import { RESPONSE_CHOICES, useStaleDays } from '../followUp.ts'
+import type { Day, OpportunityDetail, OpportunityInput } from '../types.ts'
 
 type Values = {
   reference: string
@@ -39,6 +44,8 @@ type Values = {
   tags: string[]
   url: string
   notes: string
+  followUpAt: Day | null
+  responseDueAt: Day | null
 }
 
 const text = (v: string) => (v.trim() === '' ? null : v.trim())
@@ -71,10 +78,16 @@ function initialValues(
     tags: o?.tags ?? [],
     url: o?.url ?? '',
     notes: o?.notes ?? '',
+    followUpAt: o?.followUpAt ?? null,
+    responseDueAt: o?.responseDueAt ?? null,
   }
 }
 
-function toInput(v: Values): OpportunityInput {
+/** Les dates de suivi ne sont envoyées que si elles changent (leur jour de saisie compte). */
+const changed = (value: Day | null, initial: Day | null | undefined) =>
+  value === (initial ?? null) ? undefined : value
+
+function toInput(v: Values, o?: OpportunityDetail): OpportunityInput {
   return {
     reference: text(v.reference),
     title: text(v.title),
@@ -96,6 +109,8 @@ function toInput(v: Values): OpportunityInput {
     tags: v.tags,
     url: text(v.url),
     notes: text(v.notes),
+    followUpAt: changed(v.followUpAt, o?.followUpAt),
+    responseDueAt: changed(v.responseDueAt, o?.responseDueAt),
   }
 }
 
@@ -123,6 +138,12 @@ export function OpportunityForm({
   const { data: stages = [] } = useStages()
   const { data: companies = [] } = useCompanies()
   const { data: tags = [] } = useTags()
+  const staleDays = useStaleDays()
+  // Relance calculée (sans date saisie) : affichée pour la confronter à ce qu'on sait.
+  const computed =
+    opportunity && !opportunity.followUp.planned && opportunity.followUp.status !== 'NONE'
+      ? opportunity.followUp.date
+      : null
   const companyNames = companies.map((c) => c.name)
   /** Adresse d'une entreprise connue, d'après son nom (casse ignorée). */
   const addressOf = (name: string) =>
@@ -157,7 +178,7 @@ export function OpportunityForm({
   }
 
   return (
-    <form onSubmit={form.onSubmit((v) => onSubmit(toInput(v)))}>
+    <form onSubmit={form.onSubmit((v) => onSubmit(toInput(v, opportunity)))}>
       <Stack>
         <SimpleGrid cols={{ base: 1, sm: 2 }}>
           <Autocomplete
@@ -233,9 +254,7 @@ export function OpportunityForm({
         <ContactsPicker
           value={form.values.contactIds}
           onChange={(ids) => form.setFieldValue('contactIds', ids)}
-          defaultCompany={
-            text(form.values.intermediaryName) ?? text(form.values.companyName)
-          }
+          defaultCompany={text(form.values.intermediaryName) ?? text(form.values.companyName)}
         />
 
         <Divider label="Conditions" labelPosition="left" />
@@ -285,6 +304,46 @@ export function OpportunityForm({
             {...form.getInputProps('salaryMax')}
           />
         </SimpleGrid>
+
+        <Divider label="Suivi" labelPosition="left" />
+        <SimpleGrid cols={{ base: 1, sm: 2 }}>
+          <DateInput
+            label="Relance prévue le"
+            description={`Vide : ${staleDays} jours après le dernier contact (paramètres)`}
+            placeholder={computed ? `Calculée : ${formatDay(computed)}` : 'Calculée'}
+            valueFormat="DD/MM/YYYY"
+            locale="fr"
+            clearable
+            {...form.getInputProps('followUpAt')}
+          />
+          <Stack gap={6}>
+            <DateInput
+              label="Sans réponse le, non retenue"
+              description="Délai annoncé par le recruteur : pas de relance d'ici là, puis clôture proposée"
+              placeholder="Aucun délai"
+              valueFormat="DD/MM/YYYY"
+              locale="fr"
+              clearable
+              {...form.getInputProps('responseDueAt')}
+            />
+            <Group gap={6}>
+              {RESPONSE_CHOICES.map((c) => (
+                <Chip
+                  key={c.days}
+                  size="xs"
+                  checked={form.values.responseDueAt === addDays(today(), c.days)}
+                  onChange={() => form.setFieldValue('responseDueAt', addDays(today(), c.days))}
+                >
+                  {c.label}
+                </Chip>
+              ))}
+            </Group>
+          </Stack>
+        </SimpleGrid>
+        <Text size="xs" c="dimmed" mt={-8}>
+          Un échange noté après la saisie de ces dates les rend caduques : la relance redevient
+          calculée.
+        </Text>
 
         <Textarea label="Notes" autosize minRows={3} {...form.getInputProps('notes')} />
 

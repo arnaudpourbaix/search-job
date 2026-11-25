@@ -94,6 +94,9 @@ function useRefresh() {
     void qc.invalidateQueries({ queryKey: ['opportunities'] })
     void qc.invalidateQueries({ queryKey: ['companies'] })
     void qc.invalidateQueries({ queryKey: ['tags'] })
+    // Étape, dates de relance… : le tableau de bord et les alertes en dépendent.
+    void qc.invalidateQueries({ queryKey: ['dashboard'] })
+    void qc.invalidateQueries({ queryKey: NOTIFICATION_KEY })
   }
 }
 
@@ -130,6 +133,8 @@ export type InteractionInput = {
   channel: string | null
   summary: string
   contactId: number | null
+  /** false : relance restée sans réponse. */
+  answered: boolean
 }
 
 /** Échanges et actions : la fiche est rechargée après chaque modification. */

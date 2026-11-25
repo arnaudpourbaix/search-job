@@ -53,6 +53,13 @@ export const DEFAULT_STAGES = [
   },
   { code: 'WON', label: 'Gagné', color: 'green', kind: StageKind.WON },
   { code: 'REJECTED', label: 'Refusé', color: 'red', kind: StageKind.LOST },
+  // Pas de réponse malgré les relances : ni refus explicite, ni abandon de ma part.
+  {
+    code: 'NO_FOLLOW_UP',
+    label: 'Sans suite',
+    color: 'gray',
+    kind: StageKind.LOST,
+  },
   {
     code: 'ABANDONED',
     label: 'Abandonné',

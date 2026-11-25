@@ -1,13 +1,7 @@
 import { Anchor, Box, Group, Text } from '@mantine/core'
 import { IconFlag } from '@tabler/icons-react'
 import { Link } from 'react-router'
-import {
-  formatDay,
-  isStale,
-  opportunityName,
-  opportunitySubtitle,
-} from '../format.ts'
-import { useStaleDays } from '../followUp.ts'
+import { formatDay, isStale, opportunityName, opportunitySubtitle } from '../format.ts'
 import type { OpportunitySummary } from '../types.ts'
 import { DuplicateCompanyIcon, StaleIcon } from './badges.tsx'
 
@@ -55,13 +49,13 @@ export function OpportunityName({
 }
 
 export function LastContact({ o }: { o: OpportunitySummary }) {
-  const stale = isStale(o, useStaleDays())
+  const stale = isStale(o)
   return (
     <Group gap={4} wrap="nowrap">
       <Text size="sm" c={stale ? 'red' : undefined} fs={stale ? 'italic' : undefined}>
         {formatDay(o.lastContactAt)}
       </Text>
-      {stale && <StaleIcon />}
+      {stale && <StaleIcon since={o.followUp.date} />}
     </Group>
   )
 }

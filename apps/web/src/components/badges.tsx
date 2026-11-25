@@ -1,8 +1,7 @@
 import { Badge, Group, Text, Tooltip } from '@mantine/core'
 import { IconAlertTriangle, IconCopy } from '@tabler/icons-react'
 import { DUE_COLORS, dueStatus, formatDay } from '../format.ts'
-import { useStaleDays } from '../followUp.ts'
-import type { NextAction, Stage } from '../types.ts'
+import type { Day, NextAction, Stage } from '../types.ts'
 
 export function StageBadge({ stage }: { stage: Stage }) {
   return (
@@ -40,10 +39,9 @@ export function NextActionCell({ action }: { action: NextAction | null }) {
   )
 }
 
-export function StaleIcon() {
-  const staleDays = useStaleDays()
+export function StaleIcon({ since }: { since?: Day | null }) {
   return (
-    <Tooltip label={`À relancer : pas de contact depuis plus de ${staleDays} jours`}>
+    <Tooltip label={since ? `À relancer depuis le ${formatDay(since)}` : 'À relancer'}>
       <IconAlertTriangle size={16} color="var(--mantine-color-red-6)" />
     </Tooltip>
   )

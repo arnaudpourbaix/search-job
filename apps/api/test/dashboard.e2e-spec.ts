@@ -13,7 +13,17 @@ type Dashboard = {
   byStage: { label: string; count: number }[];
   kpis: Record<string, number>;
   todo: { label: string; dueDate: string; opportunity: { id: number } }[];
-  stale: { opportunity: { id: number }; lastContactAt: string }[];
+  stale: {
+    opportunity: { id: number };
+    lastContactAt: string | null;
+    followUpAt: string;
+    planned: boolean;
+  }[];
+  noResponse: {
+    opportunity: { id: number };
+    reason: string;
+    date: string;
+  }[];
   recent: { summary: string; opportunity: { id: number } }[];
 };
 
@@ -68,6 +78,7 @@ describe('Dashboard (e2e)', () => {
       overdue: 0,
       dueToday: 0,
       stale: 0,
+      noResponse: 0,
       interviews: 0,
       contactsLastWeek: 0,
       upcomingInterviews: 0,
@@ -117,6 +128,7 @@ describe('Dashboard (e2e)', () => {
       overdue: 1,
       dueToday: 1,
       stale: 1,
+      noResponse: 0,
       interviews: 1,
       contactsLastWeek: 1,
       upcomingInterviews: 0,
@@ -137,6 +149,9 @@ describe('Dashboard (e2e)', () => {
       expect.objectContaining({
         opportunity: expect.objectContaining({ id: b }) as unknown,
         lastContactAt: inDays(-20),
+        // Dernier contact + délai de relance (14 jours).
+        followUpAt: inDays(-6),
+        planned: false,
       }),
     ]);
     expect(d.recent.map((r) => r.summary)).toEqual([
@@ -145,13 +160,16 @@ describe('Dashboard (e2e)', () => {
     ]);
   });
 
-  it('relance reportée : la piste sort de « à relancer » jusqu’à la date choisie', async () => {
+  it('date de relance prévue : remplace le calcul, plus tôt ou plus tard', async () => {
     const [{ opportunity }] = (await dashboard()).stale;
-    const snooze = (until: string | null) =>
-      http()
-        .put(`/opportunities/${opportunity.id}/snooze`)
-        .send({ until })
-        .expect(204);
+    const setFollowUp = (followUpAt: unknown) =>
+      http().patch(`/opportunities/${opportunity.id}`).send({ followUpAt });
+    const detail = async () =>
+      (await http().get(`/opportunities/${opportunity.id}`).expect(200))
+        .body as {
+        followUpAt: string | null;
+        followUp: { status: string; date: string | null; planned: boolean };
+      };
     const staleAlert = async () =>
       (
         (await http().get('/notifications').expect(200)).body as {
@@ -162,28 +180,163 @@ describe('Dashboard (e2e)', () => {
           n.type === 'STALE_OPPORTUNITY' && n.opportunity.id === opportunity.id,
       );
 
-    await snooze(inDays(7));
+    // Reportée : la piste sort de « à relancer » jusqu'à la date choisie.
+    await setFollowUp(inDays(7)).expect(200);
     let d = await dashboard();
     expect(d.kpis.stale).toBe(0);
     expect(d.stale).toEqual([]);
     expect(await staleAlert()).toBe(false);
-    const detail = (
-      await http().get(`/opportunities/${opportunity.id}`).expect(200)
-    ).body as { snoozedUntil: string | null };
-    expect(detail.snoozedUntil).toBe(inDays(7));
+    expect(await detail()).toMatchObject({
+      followUpAt: inDays(7),
+      followUp: { status: 'PLANNED', date: inDays(7), planned: true },
+    });
 
-    // Report échu : la piste revient.
-    await snooze(inDays(0));
-    expect((await dashboard()).kpis.stale).toBe(1);
-
-    await snooze(null);
+    // Date atteinte : la piste revient.
+    await setFollowUp(inDays(0)).expect(200);
     d = await dashboard();
-    expect(d.kpis.stale).toBe(1);
+    expect(d.stale).toEqual([
+      expect.objectContaining({ followUpAt: inDays(0), planned: true }),
+    ]);
     expect(await staleAlert()).toBe(true);
+
+    // Effacée : retour au calcul « dernier contact + délai ».
+    await setFollowUp(null).expect(200);
+    expect(await detail()).toMatchObject({
+      followUpAt: null,
+      followUp: { status: 'DUE', date: inDays(-6), planned: false },
+    });
+    await setFollowUp('demain').expect(400);
+  });
+
+  it('un contact après la saisie annule la date de relance prévue', async () => {
+    const id = (
+      (
+        await http()
+          .post('/opportunities')
+          .send({ companyName: 'Epsilon', campaignId, followUpAt: inDays(3) })
+          .expect(201)
+      ).body as { id: number }
+    ).id;
+    const detail = async () =>
+      (await http().get(`/opportunities/${id}`).expect(200)).body as {
+        followUpAt: string | null;
+        followUp: { status: string; date: string | null };
+      };
+    // Sans aucun contact, la date prévue suffit à planifier la relance.
+    expect(await detail()).toMatchObject({
+      followUpAt: inDays(3),
+      followUp: { status: 'PLANNED', date: inDays(3) },
+    });
+    // Un échange du jour de la saisie ne l'annule pas…
     await http()
-      .put(`/opportunities/${opportunity.id}/snooze`)
-      .send({ until: 'demain' })
-      .expect(400);
+      .post(`/opportunities/${id}/interactions`)
+      .send({ date: inDays(0), summary: 'Candidature envoyée' })
+      .expect(201);
+    expect((await detail()).followUpAt).toBe(inDays(3));
+    // …un échange postérieur, si : la relance redevient calculée.
+    await http()
+      .post(`/opportunities/${id}/interactions`)
+      .send({ date: inDays(1), summary: 'Réponse du recruteur' })
+      .expect(201);
+    expect(await detail()).toMatchObject({
+      followUpAt: null,
+      followUp: { status: 'PLANNED', date: inDays(15) },
+    });
+    await http().delete(`/opportunities/${id}`).expect(204);
+  });
+
+  it('délai de réponse : pas de relance d’ici là, puis clôture proposée', async () => {
+    const [{ opportunity }] = (await dashboard()).stale;
+    const setDue = (responseDueAt: string | null) =>
+      http()
+        .patch(`/opportunities/${opportunity.id}`)
+        .send({ responseDueAt })
+        .expect(200);
+    const alerts = async () =>
+      (
+        (await http().get('/notifications').expect(200)).body as {
+          items: { type: string; opportunity: { id: number } }[];
+        }
+      ).items
+        .filter((n) => n.opportunity.id === opportunity.id)
+        .map((n) => n.type);
+    try {
+      // Réponse attendue dans 10 jours : rien à faire d'ici là.
+      await setDue(inDays(10));
+      let d = await dashboard();
+      expect(d.kpis.stale).toBe(0);
+      expect(d.kpis.noResponse).toBe(0);
+      expect(await alerts()).not.toContain('STALE_OPPORTUNITY');
+
+      // Une relance prévue avant l'échéance reste valable.
+      await http()
+        .patch(`/opportunities/${opportunity.id}`)
+        .send({ followUpAt: inDays(-1) })
+        .expect(200);
+      expect((await dashboard()).kpis.stale).toBe(1);
+      await http()
+        .patch(`/opportunities/${opportunity.id}`)
+        .send({ followUpAt: null })
+        .expect(200);
+
+      // Échéance passée : la piste est « sans réponse », plus « à relancer ».
+      await setDue(inDays(-1));
+      d = await dashboard();
+      expect(d.kpis.stale).toBe(0);
+      expect(d.noResponse).toEqual([
+        expect.objectContaining({
+          opportunity: expect.objectContaining({
+            id: opportunity.id,
+          }) as unknown,
+          reason: 'DEADLINE',
+          date: inDays(-1),
+        }),
+      ]);
+      expect(await alerts()).toContain('NO_RESPONSE');
+    } finally {
+      await setDue(null);
+    }
+    expect((await dashboard()).kpis.stale).toBe(1);
+  });
+
+  it('silence malgré les relances : la piste passe « sans réponse »', async () => {
+    const id = (
+      (
+        await http()
+          .post('/opportunities')
+          .send({ companyName: 'Zêta', campaignId })
+          .expect(201)
+      ).body as { id: number }
+    ).id;
+    const note = (date: string, answered?: boolean) =>
+      http()
+        .post(`/opportunities/${id}/interactions`)
+        .send({ date, summary: 'Relance', answered })
+        .expect(201);
+    try {
+      await note(inDays(-40));
+      await note(inDays(-10), false);
+      const detail = (await http().get(`/opportunities/${id}`).expect(200))
+        .body as {
+        lastContactAt: string;
+        lastReplyAt: string;
+        interactions: { answered: boolean }[];
+      };
+      expect(detail).toMatchObject({
+        lastContactAt: inDays(-10),
+        lastReplyAt: inDays(-40),
+      });
+      expect(detail.interactions.map((i) => i.answered)).toEqual([false, true]);
+      expect((await dashboard()).noResponse).toContainEqual(
+        expect.objectContaining({
+          opportunity: expect.objectContaining({ id }) as unknown,
+          reason: 'SILENCE',
+          date: inDays(-40),
+        }),
+      );
+    } finally {
+      await http().delete(`/opportunities/${id}`).expect(204);
+    }
   });
 
   it('entretien prévu : la piste n’est pas à relancer tant qu’il est à venir', async () => {

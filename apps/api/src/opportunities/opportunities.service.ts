@@ -27,7 +27,17 @@ import {
   recordStageChange,
   stageChangesInclude,
 } from '../common/stage-history.js';
-import { openStageFilter, stageRef } from '../common/stages.js';
+import { CLOSED_KINDS, openStageFilter, stageRef } from '../common/stages.js';
+import {
+  type Contact,
+  contactDates,
+  contactsOf,
+  followUp,
+  type FollowUpSettings,
+  followUpSettingsSelect,
+  validDates,
+} from '../common/follow-up.js';
+import type { StageKind } from '../generated/prisma/enums.js';
 import { PrismaService } from '../prisma/prisma.service.js';
 import type {
   CreateOpportunityDto,
@@ -49,7 +59,7 @@ const listInclude = {
   contacts: opportunityContactsInclude,
   campaign: campaignRef,
   tags: { select: { name: true }, orderBy: { name: 'asc' } },
-  interactions: { select: { date: true } },
+  interactions: { select: { date: true, answered: true } },
   actions: {
     where: { doneAt: null },
     select: { id: true, label: true, dueDate: true },
@@ -90,25 +100,64 @@ function nextAction(
     : null;
 }
 
-/**
- * Premier et dernier contact (échanges du journal et tours ayant eu lieu), et
- * prochain entretien prévu (il suspend la relance).
- */
-function contactDates(
-  interactions: { date: Date }[],
-  interviews: Parameters<typeof isHeld>[0][],
+/** Date de relance ou d'échéance saisie, avec son jour de saisie ; undefined = inchangée. */
+function dateWithSetOn(
+  field: 'followUp' | 'responseDue',
+  value: string | null | undefined,
 ) {
-  const nextInterviewAt = day(nextInterviewDate(interviews, today()));
-  const times = [
-    ...interactions.map((i) => i.date),
-    ...interviews.filter(isHeld).map((r) => r.date),
-  ].map((d) => d.getTime());
-  if (!times.length)
-    return { firstContactAt: null, lastContactAt: null, nextInterviewAt };
+  if (value === undefined) return {};
   return {
-    firstContactAt: formatDay(new Date(Math.min(...times))),
-    lastContactAt: formatDay(new Date(Math.max(...times))),
-    nextInterviewAt,
+    [`${field}At`]: value ? parseDay(value) : null,
+    [`${field}SetOn`]: value ? today() : null,
+  };
+}
+
+type FollowUpSource = {
+  stage: { kind: StageKind };
+  interactions: Contact[];
+  interviews: Parameters<typeof isHeld>[0][];
+  followUpAt: Date | null;
+  followUpSetOn: Date | null;
+  responseDueAt: Date | null;
+  responseDueSetOn: Date | null;
+};
+
+/**
+ * Premier et dernier contact (échanges du journal et tours ayant eu lieu),
+ * dernière réponse, prochain entretien prévu, et relance : dates saisies encore
+ * valables et état.
+ */
+function contactSummary(o: FollowUpSource, settings: FollowUpSettings) {
+  const now = today();
+  const next = nextInterviewDate(o.interviews, now);
+  const input = {
+    closed: CLOSED_KINDS.includes(o.stage.kind),
+    contacts: contactsOf(o.interactions, o.interviews.filter(isHeld)),
+    upcomingInterview: next !== null,
+    followUpAt: o.followUpAt,
+    followUpSetOn: o.followUpSetOn,
+    responseDueAt: o.responseDueAt,
+    responseDueSetOn: o.responseDueSetOn,
+  };
+  const { first, last, lastReply } = contactDates(input.contacts);
+  const valid = validDates(input);
+  const f = followUp(input, now, settings);
+  return {
+    firstContactAt: day(first),
+    lastContactAt: day(last),
+    /** Dernière réponse obtenue (échange répondu ou entretien ayant eu lieu). */
+    lastReplyAt: day(lastReply),
+    nextInterviewAt: day(next),
+    /** Relance prévue saisie sur la piste (null : calculée). */
+    followUpAt: day(valid.followUpAt),
+    /** Date au-delà de laquelle, sans réponse, la candidature est non retenue. */
+    responseDueAt: day(valid.responseDueAt),
+    followUp: {
+      status: f.status,
+      date: day(f.date),
+      planned: f.planned,
+      reason: f.reason,
+    },
   };
 }
 
@@ -138,7 +187,7 @@ export class OpportunitiesService {
       ];
     }
 
-    const [rows, companyCounts] = await Promise.all([
+    const [rows, companyCounts, settings] = await Promise.all([
       this.prisma.opportunity.findMany({
         where,
         include: listInclude,
@@ -150,6 +199,7 @@ export class OpportunitiesService {
         where: { userId, companyId: { not: null } },
         _count: { _all: true },
       }),
+      this.settings(userId),
     ]);
     const duplicated = new Set(
       companyCounts
@@ -175,7 +225,7 @@ export class OpportunitiesService {
       intermediaryType: o.intermediaryType,
       contacts: o.contacts.map((c) => c.contact),
       tags: o.tags.map((t) => t.name),
-      ...contactDates(o.interactions, o.interviews),
+      ...contactSummary(o, settings),
       nextAction: nextAction(o.actions),
       openActions: o.actions.length,
       interviews: interviewProgress(o.interviews),
@@ -183,7 +233,6 @@ export class OpportunitiesService {
       duplicateCompany:
         o.companyId !== null &&
         duplicated.has(`${o.campaignId}:${o.companyId}`),
-      snoozedUntil: day(o.snoozedUntil),
       updatedAt: o.updatedAt,
     }));
   }
@@ -211,6 +260,7 @@ export class OpportunitiesService {
       },
     });
     if (!o) throw new NotFoundException(`Piste ${id} introuvable`);
+    const settings = await this.settings(userId);
 
     // Même entreprise proposée sur plusieurs pistes (ex. par deux intermédiaires).
     const duplicateCompany =
@@ -225,8 +275,9 @@ export class OpportunitiesService {
       contacts: o.contacts.map((c) => c.contact),
       campaign: formatCampaign(o.campaign),
       tags: o.tags.map((t) => t.name),
-      ...contactDates(o.interactions, o.interviews),
-      snoozedUntil: day(o.snoozedUntil),
+      followUpSetOn: undefined,
+      responseDueSetOn: undefined,
+      ...contactSummary(o, settings),
       nextAction: nextAction(openActions),
       duplicateCompany,
       interviewProgress: interviewProgress(o.interviews),
@@ -254,6 +305,7 @@ export class OpportunitiesService {
         date: formatDay(i.date),
         channel: i.channel,
         summary: i.summary,
+        answered: i.answered,
         contact: i.contact,
       })),
       // Ouvertes d'abord (par échéance, sans date en dernier), puis faites.
@@ -377,13 +429,12 @@ export class OpportunitiesService {
     return campaign.id;
   }
 
-  /** Reporte la relance jusqu'à un jour donné (null : annule le report). */
-  async snooze(userId: number, id: number, until: string | null) {
-    const { count } = await this.prisma.opportunity.updateMany({
-      where: { id, userId },
-      data: { snoozedUntil: until ? parseDay(until) : null },
+  /** Réglages de relance de l'utilisateur. */
+  private settings(userId: number): Promise<FollowUpSettings> {
+    return this.prisma.user.findUniqueOrThrow({
+      where: { id: userId },
+      select: followUpSettingsSelect,
     });
-    if (!count) throw new NotFoundException(`Piste ${id} introuvable`);
   }
 
   async remove(userId: number, id: number) {
@@ -411,6 +462,9 @@ export class OpportunitiesService {
       campaignId: dto.campaignId,
       url: dto.url,
       notes: dto.notes,
+      // Date saisie : on retient le jour de saisie (un contact ultérieur l'annule).
+      ...dateWithSetOn('followUp', dto.followUpAt),
+      ...dateWithSetOn('responseDue', dto.responseDueAt),
       intermediaryType:
         dto.intermediaryName === null ? null : dto.intermediaryType,
     };
